@@ -69,8 +69,9 @@ What is in here
   patches for the game itself (.ips, applied to the game's code inside the emulator).
   Nothing in this zip runs on your computer: no programs, scripts or installers.
   "patch-listings" has every code patch as readable assembly.
-  SHA256SUMS.txt lists the sum of every file; the sources that build these files from
-  your own copy of the game are public, so the files can be rebuilt and compared.
+  SHA256SUMS.txt lists the sum of every file. The sources that build these files from
+  your own copy of the game, and the sum of this zip, are public:
+  https://github.com/snaildev99/OoT-Character-Select
 """
 
 

@@ -105,6 +105,28 @@ EXPERIMENTS = [("lean", EXPERIMENT_MODEL), ("raw", EXPERIMENT_MODEL)]
 # model is renamed: the first of HAIR_STAND_INS it has. The game then writes that
 # material's texture matrix 0: the identity at rest (a no-op, checked in rigged(): every
 # stand-in has the identity as its default), head gear's hair values while a mask is worn.
+# The legs (2026-11-11; README, NPC section, "The ankles"): the foot IK takes the ankle's
+# parent and grandparent for knee and hip, so no offset bone may sit between hip, knee and
+# ankle (npcrig step 5, LEGS). The leg bones then carry the character's own lengths, which
+# the game only keeps when the animation is retargeted: the folder MOD also has
+#   - the player's AnimationParam with IsRetarget on every animation set, in the actor packs
+#     of the field and the menu Link of both ages (RETARGET_PACKS), and
+#   - the reference skeleton each set then needs, Model/<set>.Skeleton.bfres: the game has
+#     it for one set per age (= Link's skeleton), copied here under the other sets' names.
+# Passed in game as a test folder with Saria and Zelda (snaildev, 2026-11-11: both fixed on
+# slopes and ledges, Link and the lighting normal, a character of the first rig as before).
+LEGS = "retarget"
+RETARGET_PACKS = {      # age: (the AnimationParam file in the packs, the packs)
+    "Child": ("Component/AnimationParam/Player_Child.engine__component__AnimationParam.bgyml",
+              ("Player_Child", "PouchPlayer_Child")),
+    "Adult": ("Component/AnimationParam/Player.engine__component__AnimationParam.bgyml",
+              ("Player_Adult", "PouchPlayer_Adult")),
+}
+RETARGET_SKELETON = "Model/%s.Skeleton.bfres.zs"
+LEGS_AS_THEY_ARE = ("Npc_Hylia_MM_003.Npc_Hylia_MM_003",)     # sits: no leg to fit, keeps the first rig
+RETIRED = ["Character leg retarget (test)"]     # our earlier test folders: the installing build removes them
+EXTRA_MODS = []                 # folders build_mods() makes besides MOD; the caller installs them too
+
 HAIR_MATERIAL = "Mt_Hairs"
 HAIR_STAND_INS = ("Mt_Hair", "Mt_Teeth", "Mt_Item_DekuStick")
 TEX_MTX0_KEY = 0x5E0F8E359DEB7624      # shader parameter "ns_tex_mtx0" as model files store it
@@ -194,15 +216,17 @@ def _source_hash():
     return h.hexdigest()
 
 
-def rigged(stem, age, mode="full"):
+def rigged(stem, age, mode="full", legs=None):
     """The NPC model as a player model: (compressed bytes, decompressed size, growth in
-    bytes, report). Modes: full (the real thing), lean, raw (EXPERIMENTS). Every result is
-    parsed again and checked against the stock model (npcrig.check_rig); cached by content."""
+    bytes, report). Modes: full (the real thing), lean, raw (EXPERIMENTS); legs = npcrig's
+    legs_mode (the leg test). Every result is parsed again and checked against the stock
+    model (npcrig.check_rig); cached by content."""
     raw, data = npc_data(stem)
     link_raw = npc_data("Player_%s.Player_%s" % (age, age))[0]
     key = hashlib.sha1(b"|".join([raw, link_raw, mode.encode(), age.encode(), _source_hash().encode(),
                                  b"%d" % ZS_LEVEL, repr((HAIR_MATERIAL, HAIR_STAND_INS)).encode(),
-                                 repr((GEAR_AWAY, GEAR_BONES, GEAR_OFFSET)).encode()])).hexdigest()
+                                 repr((GEAR_AWAY, GEAR_BONES, GEAR_OFFSET)).encode()]
+                                + ([b"legs " + legs.encode()] if legs else []))).hexdigest()
     path = os.path.join(CACHE, key)
     if os.path.exists(path + ".zs") and os.path.exists(path + ".json"):
         info = json.load(open(path + ".json"))
@@ -213,7 +237,10 @@ def rigged(stem, age, mode="full"):
     before = bfres.Fres(data).model()
     report = {"bones": (len(m.bones), len(m.bones))}
     if mode != "raw":
-        bones, remap, inverse, report = npcrig.player_rig(m, link, add_missing=(mode == "full"))
+        bones, remap, inverse, report = npcrig.player_rig(m, link, add_missing=(mode == "full"),
+                                                          legs_mode=legs)
+        assert not legs or set(report["legs"]) == (set() if stem in LEGS_AS_THEY_ARE else set(npcrig.SIDES)), \
+            (stem, "legs", report["legs"])
         missing = [n for n in npcrig.CORE if n != "Root" and n not in report["joints"]]
         assert not missing, (stem, "core joints not bound", missing)
         m.set_skeleton(bones, remap)
@@ -227,7 +254,8 @@ def rigged(stem, age, mode="full"):
     assert after.material_names == [HAIR_MATERIAL if n == report["hair"] else n for n in before.material_names]
     check_hair_material(after, stem)
     if mode != "raw":
-        report["error"] = npcrig.check_rig(before, after, link, report["fixed"], complete=(mode == "full"))
+        report["error"] = npcrig.check_rig(before, after, link, report["fixed"], complete=(mode == "full"),
+                                           follow=report["follow"], legs=report["legs"])
     else:
         assert [(b.name, b.parent) for b in after.bones] == [(b.name, b.parent) for b in before.bones]
     if GEAR_AWAY and mode == "full":
@@ -290,12 +318,57 @@ def npc_models(mod):
     t0 = time.time()
     for number, (stem, mode) in enumerate(jobs):
         for age in AGES:
-            zs, size, growth, report = rigged(stem, age, mode)
+            zs, size, growth, report = rigged(stem, age, mode, legs=LEGS if mode == "full" else None)
             build.write(mod, MODEL_FILE % (age, number, age), zs, size, build.SIZES,
                         size=model_size_entry(stem, growth))
             reports.append((number, stem, age, mode, report))
     print("  %d model files in %.0f s" % (len(reports), time.time() - t0))
     return reports
+
+
+# ---------------------------------------------------------------- retargeting
+
+def retarget(mod):
+    """The player's animation sets retargeted (see LEGS). Returns lines for the build's output."""
+    notes = []
+    for age, (param_file, packs) in RETARGET_PACKS.items():
+        projects = None
+        for pack in packs:
+            rel = "Pack/Actor/%s.pack.zs" % pack
+            raw = open(os.path.join(nxfmt.ROMFS, rel), "rb").read()
+            data = nxfmt.unzs(raw, rel)
+            old = bytes(nxfmt.sarc_files(data)[param_file])
+            param = byml.load(old)
+            assert byml.dump(param, byml.version_of(old)) == old, "the parameter file does not round trip"
+            assert list(param) == ["AnimationResources"] and all(list(r) == ["ModelProjectName"]
+                                                                 for r in param["AnimationResources"]), param
+            assert projects in (None, [r["ModelProjectName"] for r in param["AnimationResources"]])
+            projects = [r["ModelProjectName"] for r in param["AnimationResources"]]
+            for r in param["AnimationResources"]:
+                r["IsRetarget"] = True
+            new = byml.dump(param, byml.version_of(old))
+            assert byml.load(new) == param
+            out = nxpack.sarc_replace(data, {param_file: new})
+            files = nxfmt.sarc_files(out)
+            assert bytes(files[param_file]) == new and all(
+                bytes(v) == bytes(files[k]) for k, v in nxfmt.sarc_files(data).items() if k != param_file)
+            build.write(mod, rel, nxpack.zs_compress_like(out, raw), len(out), build.SIZES)
+            notes.append("%s: IsRetarget on %d animation sets (%d -> %d bytes)" % (pack, len(projects), len(old), len(new)))
+        have = [q for q in projects if os.path.exists(os.path.join(nxfmt.ROMFS, RETARGET_SKELETON % q))]
+        assert len(have) == 1, have
+        raw = open(os.path.join(nxfmt.ROMFS, RETARGET_SKELETON % have[0]), "rb").read()
+        skeleton = nxfmt.unzs(raw, have[0])
+        ref, link = bfres.Fres(skeleton).model(), link_model(age)
+        assert ref.name == "Skeleton" and [(b.name, b.parent, b.scale, b.rotate, b.translate) for b in ref.bones] == \
+            [(b.name, b.parent, b.scale, b.rotate, b.translate) for b in link.bones], "not Link's skeleton"
+        entry = build.stock_table().get((RETARGET_SKELETON % have[0])[:-3])
+        assert entry is not None and entry >= len(skeleton)
+        for q in projects:
+            if q != have[0]:
+                assert not os.path.exists(os.path.join(nxfmt.ROMFS, "Model", q + ".Skeleton.bfres"))
+                build.write(mod, RETARGET_SKELETON % q, raw, len(skeleton), build.SIZES, size=entry)
+        notes.append("%s: reference skeleton %s copied for %d sets" % (age, have[0], len(projects) - 1))
+    return notes
 
 
 # ---------------------------------------------------------------- actor heaps
@@ -1529,6 +1602,17 @@ def write_list(reports, pre_heap):
                 notes.append("turned " + ", ".join("%s %g" % kv for kv in sorted(big.items())))
         if r.get("absolute"):
             notes.append("arms " + ", ".join("%s %g" % kv for kv in sorted(r["absolute"].items())))
+        far = {age.lower(): max(by[number][age][2].get("follow", {}).values(), default=0) * 1000 for age in AGES}
+        if max(far.values()) > 20:      # the ankle helper turns the shin about an axis this far from its own
+            notes.append("ankle helper off axis " + ", ".join("%s %.0f mm" % kv for kv in far.items()))
+        legs = {age.lower(): max((v[k] for v in by[number][age][2].get("legs", {}).values() for k in ("hip", "knee")),
+                                 default=0) * 1000 for age in AGES}
+        if mode == "full" and not r.get("legs"):
+            notes.append("legs: first rig (offset bones, the foot IK misses the knee)")
+        elif max(legs.values()) > 20:      # the hip or knee pivot is this far from the model's own
+            notes.append("leg pivots off " + ", ".join("%s %.0f mm" % kv for kv in legs.items()))
+        if r.get("not following"):
+            notes.append("ankle helpers left static (another rest pose): " + ", ".join(r["not following"]))
         extra = [x for x in r.get("fixed", []) if x not in npcrig.ABSOLUTE]
         if extra:
             notes.append("kept own frame: " + ", ".join(extra))
@@ -1602,6 +1686,9 @@ def build_mods():
     shutil.rmtree(os.path.join(build.BUILD, MOD), ignore_errors=True)
     reports = npc_models(MOD)
     pre_heap = actor_heaps(MOD)
+    print("\n".join("  " + n for n in retarget(MOD)))
+    for mod in RETIRED:
+        shutil.rmtree(os.path.join(build.BUILD, mod), ignore_errors=True)
     return patcher, factors, reports, pre_heap
 
 

@@ -35,7 +35,7 @@ Good to know:
 - **Game version 1.1.1 only.** The code patches are tied to that build (build id `E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348`). On another version, switch the folders off.
 - **Button prompt mods conflict.** This mod replaces the same layout texture file, so only one of the two can be on.
 - **`Character field swap` can be off by itself.** The picked character then shows in the field after save, return to title and Continue.
-- **Known gaps:** slight disjointing at some characters' ankles, most NPCs are listed under their file names, faces are not animated, and swapping while riding is not handled.
+- **Known gaps:** most NPCs are listed under their file names, faces are not animated, and swapping while riding is not handled.
 
 ## Is it safe to install?
 

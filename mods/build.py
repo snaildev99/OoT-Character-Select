@@ -3242,7 +3242,8 @@ def main():
             if "--no-field-swap" not in sys.argv:
                 field = field_swap_hooks()      # before anything is built: it wraps what builds
         built_npc = npc.build_mods()
-        extra = [npc.MOD]
+        extra = [npc.MOD] + list(npc.EXTRA_MODS)    # its test folders (override folders, as EXPERIMENTS)
+        retired += list(npc.RETIRED)
         if not cycle:
             # the picker's layout is the page's own: the layout test folder would override it
             retired += list(experiments)

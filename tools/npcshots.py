@@ -50,7 +50,7 @@ def main():
     """One tool serves a session: when a game closes it waits for the next one."""
     started = time.time()
     while time.time() - started < 8 * 3600:
-        if watch():
+        if watch() or "--once" in sys.argv:     # --once: this game only (the next one is not a capture)
             return
         time.sleep(3)
 

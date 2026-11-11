@@ -56,6 +56,11 @@ def linear_to_srgb(a):
 
 
 def load(path):
+    if not os.path.exists(path):
+        # the emulator copy was renamed with the Fritchii update (Fritchii-v5.5-npc ->
+        # Fritchii-npc); its user folder, and the frames in it, moved along
+        import npcenv
+        path = os.path.join(npcenv.USER, "log", "debug-server", os.path.basename(path))
     return np.asarray(Image.open(path).convert("RGB")).astype(np.float64)
 
 
@@ -65,20 +70,29 @@ def backdrop(a):
     return patch.mean(axis=0), float(patch.std())
 
 
-def last_run():
-    """{character number: [(time, path)]} of the last session in the index that has a run in
-    it (several characters with several frames each; the tool also lists stray frames of the
-    normal page, and every start of the tool begins a session)."""
+def runs():
+    """{character number: [[(time, path)] of the newest session that has him in a run, of the
+    one before, ...]}. A session with a run = several characters with several frames each
+    (the tool also lists stray frames of the normal page, and every start of the tool begins a
+    session). Later runs may show a few characters only (Biggoron's own, 2026-11-11), so a
+    character's frames are looked up session by session, newest first."""
     rows = [json.loads(line) for line in open(INDEX, encoding="utf-8")]
     starts = [i for i, r in enumerate(rows) if "session" in r] + [len(rows)]
+    out = {}
     for a, b in reversed(list(zip(starts, starts[1:]))):
         shots = {}
         for r in rows[a + 1:b]:
             if r.get("after") and r["before"][0] == r["after"][0]:
                 shots.setdefault(r["before"][0], []).append((r["t0"], r["path"]))
         if sum(len(v) >= 4 for v in shots.values()) >= 2:
-            return shots
-    return {}
+            for number, frames in shots.items():
+                out.setdefault(number, []).append(frames)
+    return out
+
+
+def last_run():
+    """{character number: [(time, path)]}: every character's newest run."""
+    return {number: sessions[0] for number, sessions in runs().items()}
 
 
 _metrics = {}
@@ -170,9 +184,62 @@ def fitted_square(stem):
     return centre - side / 2.0, top, side, scale
 
 
-def cut(number, shots, link_scale=None, save=True, fit=False):
-    """One character. Returns a dict of numbers (and writes the picture)."""
-    name, stem = character(number)
+# snaildev's notes on the first full set (2026-11-11), as numbers: {character number: (zoom,
+# right, down)}. Applied to the fitted square: its side times `zoom` about its centre (above
+# 1 = a larger square = the character smaller), then the CHARACTER moves right / down in the
+# picture by that share of the new side (the square goes the other way). Where the numbers
+# come from: the model's eye, chin and neck heights put on screen through the head's own
+# silhouette (the idle pose stands 7-9 cm lower than the rest pose, so the rest pose alone is
+# off), and the same numbers of the portraits snaildev did NOT flag: in those the chin sits at
+# 0.82 of the side and the base of the neck at 1.07 (adults; children 0.78 / 0.98). Flagged
+# portraits are set to that framing; shifts are the share he described. README, NPC characters.
+ADJUST = {
+    13: (1.000, 0.000, -0.100),   # Nabooru: head too low; her headgear may be cut
+    17: (0.380, -0.040, 0.678),   # King Zora: was most of his body (eyes far apart); now crown to under the chin
+    19: (1.000, 0.289, 0.000),    # Great Fairy: the hair pulled the centre right; now centred on the face
+    # Gorons except Darunia: showed the torso down to the belly (eyes far apart)
+    24: (0.750, 0.000, 0.139), 26: (0.750, 0.000, 0.139), 34: (0.750, 0.000, 0.139), 35: (0.750, 0.000, 0.139),
+    36: (0.750, 0.000, 0.139),
+    25: (0.750, 0.000, 0.139),    # Biggoron: the same model family (no frames of him yet: he did not fit the page)
+    # Hylia_MF_001-005: chins cut off; the tall hair may be cut instead (one side for the five,
+    # the chin at 0.80 or the plain head's top margin, whichever is lower)
+    37: (1.167, 0.000, -0.217), 38: (1.167, 0.000, -0.205), 39: (1.167, 0.000, -0.135), 40: (1.167, 0.000, -0.213),
+    41: (1.167, 0.000, -0.060),
+    47: (1.000, 0.000, -0.165),   # Hylia_MM_002: head too low under his music box (which may be cut)
+    # top of the head right, bottom edge wrong: the top margin kept, the side from chin and neck
+    49: (1.121, 0.000, -0.044),   # Hylia_MM_004: a tiny bit too close
+    50: (1.168, 0.000, -0.059),   # Hylia_MM_006: a little more than 004 (neck only: his chin bone sits high)
+    51: (0.727, 0.000, 0.156),    # Hylia_MN_001: no eye bones, had Link's square; bottom was at the sternum
+    55: (1.582, 0.000, -0.153),   # Hylia_MN_006: bottom edge was just below the nose
+    57: (1.320, 0.000, -0.101),   # Hylia_MN_008: started at the chin
+    58: (1.224, 0.000, -0.076),   # Hylia_MN_009: started at the chin
+    59: (0.686, 0.000, 0.190),    # Hylia_MN_014: no eye bones; bottom was at the sternum
+    61: (1.400, 0.000, -0.118),   # Hylia_MN_102: bottom edge was just below the nose
+    62: (1.140, 0.000, -0.050),   # Hylia_MN_103: started right at the chin
+    65: (1.206, 0.000, -0.072),   # Hylia_MO_002: started just below the mouth
+    66: (1.154, 0.000, -0.103),   # Hylia_MS_001: head a little higher (helmet already cut), bottom below the chin
+    68: (0.667, 0.000, 0.207),    # Hylia_MU_003: started at the belly button; as close as his wide head allows
+    71: (1.000, 0.000, 0.026),    # Hylia_MX_001: down a hair (the beard is cut anyway)
+    72: (1.109, 0.000, -0.124),   # Hylia_MX_002: bowl cut flush with the top edge, bottom edge where 001's is
+    73: (1.201, 0.000, -0.070),   # Hylia_MX_003: framing of MX_001
+    87: (1.060, 0.000, -0.048),   # Hylia_WN_008: a little more of the pink shirt
+    90: (0.907, 0.000, 0.042),    # Hylia_WU_002: a touch closer (a child: the head stays a bit smaller)
+    91: (1.000, 0.179, 0.000),    # Hylia_WX_001: big hair pulled the centre right; centred on the face
+    92: (1.000, 0.095, -0.090),   # Hylia_WX_002: the same, less; and the head was too low
+    93: (1.121, 0.000, 0.000),    # Kokiri_MC_001: the side of the other Kokiri boys
+}
+
+
+def adjusted(number, left, upper, side):
+    zoom, right, down = ADJUST.get(number, (1.0, 0.0, 0.0))
+    new = side * zoom
+    return left - (new - side) / 2.0 - right * new, upper - (new - side) / 2.0 - down * new, new
+
+
+def matte(number, shots, out=None):
+    """The character's transparency from one frame on black and one on white: (alpha, black
+    frame, colour space the game blended in), or None with out["error"] set."""
+    out = {} if out is None else out
     kinds = []
     for t, path in sorted(shots):
         a = load(path)
@@ -180,14 +247,15 @@ def cut(number, shots, link_scale=None, save=True, fit=False):
         kind = "black" if bg.max() < 2 and spread < 0.5 else "white" if bg.min() > 200 and spread < 0.5 else "other"
         kinds.append((t, path, kind, bg))
     whites = [k for k in kinds if k[2] == "white"]
-    out = {"number": number, "name": name, "frames": [k[2] for k in kinds]}
+    out["frames"] = [k[2] for k in kinds]
     if not whites:
         out["error"] = "no frame on white"
-        return out
+        return None
     blacks = [k for k in kinds if k[2] == "black" and k[0] < whites[0][0]]
     if not blacks:
         out["error"] = "no frame on black before the white ones"
-        return out
+        return None
+    out["frames_used"] = [os.path.basename(blacks[-1][1]), os.path.basename(whites[0][1])]
     b, w = load(blacks[-1][1]), load(whites[0][1])
     wbg = whites[0][3]
     # the two candidates for where the game blended: display values or linear light
@@ -210,7 +278,21 @@ def cut(number, shots, link_scale=None, save=True, fit=False):
             best = (space, disagree)
     space = best[0]
     out["space"] = space
-    alpha = np.clip(alphas[space].mean(axis=2), 0, 1)
+    return np.clip(alphas[space].mean(axis=2), 0, 1), b, space
+
+
+def cut(number, shots, link_scale=None, save=True, fit=False, folder=None):
+    """One character. Returns a dict of numbers (and writes the picture, into `folder` when
+    given: a scratch folder for comparing with the set in place)."""
+    name, stem = character(number)
+    out = {"number": number, "name": name}
+    got = matte(number, shots, out)
+    if got is None:
+        return out
+    alpha, b, space = got
+    h, wd = b.shape[:2]
+    x0, x1 = int(REGION_X[0] * wd), int(REGION_X[1] * wd)
+    y0, y1 = int(REGION_Y[0] * h), int(REGION_Y[1] * h)
     region = alpha[y0:y1, x0:x1]
     solid = region > 0.5
     rows = np.nonzero(solid.any(axis=1))[0]
@@ -254,6 +336,10 @@ def cut(number, shots, link_scale=None, save=True, fit=False):
             out["head_top_row"], out["head_centre_x"] = head_top, round(centre, 1)
             left = centre - side / 2.0
             upper = max(upper, head_top - TOP_MARGIN * side)
+        out["fitted"] = [round(left, 1), round(upper, 1), round(side, 1)]
+        if number in ADJUST:
+            out["adjust"] = list(ADJUST[number])
+            left, upper, side = adjusted(number, left, upper, side)
     left, upper, side = int(round(left)), int(round(upper)), int(round(side))
     hh = side / FRAME_SIDE
     out.update({"head_px": round(hh, 1), "side": side, "square": [left, upper, left + side, upper + side]})
@@ -271,10 +357,9 @@ def cut(number, shots, link_scale=None, save=True, fit=False):
     edge = np.concatenate([a[0], a[-1], a[:, 0], a[:, -1]])
     out.update({"square_covered": round(float((a > 0.5).mean()), 3),
                 "square_border_covered": {"top": round(float((a[0] > 0.5).mean()), 3), "bottom": round(float((a[-1] > 0.5).mean()), 3),
-                                          "left": round(float((a[:, 0] > 0.5).mean()), 3), "right": round(float((a[:, -1] > 0.5).mean()), 3)},
-                "frames_used": [os.path.basename(blacks[-1][1]), os.path.basename(whites[0][1])]})
+                                          "left": round(float((a[:, 0] > 0.5).mean()), 3), "right": round(float((a[:, -1] > 0.5).mean()), 3)}})
     if save:
-        CUT = os.path.join(OUT, "cut-fit" if fit else "cut")
+        CUT = folder or os.path.join(OUT, "cut-fit" if fit else "cut")
         os.makedirs(CUT, exist_ok=True)
         safe = "".join(c if c.isalnum() else "_" for c in name)
         path = os.path.join(CUT, "%02d_%s.png" % (number, safe))
@@ -285,8 +370,21 @@ def cut(number, shots, link_scale=None, save=True, fit=False):
 
 
 def main():
-    shots = last_run()
+    sessions = runs()
+    shots = {number: frames[0] for number, frames in sessions.items()}
     numbers = [int(x) for x in sys.argv[1:] if not x.startswith("--")] or sorted(shots)
+    folder = next((x[6:] for x in sys.argv[1:] if x.startswith("--out=")), None)
+    # A portrait in place stays with the frames it was cut from (a later run that shows a
+    # character again, as a control, must not change a picture snaildev has passed: Link's from
+    # Biggoron's run differs in 0.4 % of its pixels); --newest takes the latest run instead.
+    listed = os.path.join(OUT, "cut-fit.jsonl")
+    if "--fit" in sys.argv and "--newest" not in sys.argv and os.path.exists(listed):
+        for line in open(listed, encoding="utf-8"):
+            r = json.loads(line) if line.startswith("{") else {}
+            if r.get("frames_used") and r["number"] in sessions:
+                first = r["frames_used"][0]
+                sessions[r["number"]].sort(key=lambda frames: not any(os.path.basename(p) == first for _t, p in frames))
+        shots = {number: frames[0] for number, frames in sessions.items()}
     link_scale = None
     if 0 in shots:
         r = cut(0, shots[0], save=False)
@@ -295,7 +393,10 @@ def main():
         if number not in shots:
             print(number, "no frames")
             continue
-        r = cut(number, shots[number], link_scale, fit="--fit" in sys.argv)
+        for frames in sessions[number]:     # a session without his black and white frames: the one before
+            r = cut(number, frames, link_scale, fit="--fit" in sys.argv, folder=folder)
+            if not r.get("error", "").startswith("no frame on"):
+                break
         r.pop("link_scale", None)
         print(json.dumps(r))
 

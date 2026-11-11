@@ -2747,8 +2747,13 @@ EXPERIMENTS = {
 }
 RETIRED = ["Test 1 - Characters tab name", "Test 2 - L on Key Items", "Test 3 - Characters page",
            "Test 4 - Characters page 3D", "Test 5 - Characters page Link", "Test 6 - Characters camera 0",
-           "Test 7 - Characters no camera", "Test 8 - Characters fade"]
-EMULATORS = ("lichii.exe", "eden.exe", "yuzu.exe")
+           "Test 7 - Characters no camera", "Test 8 - Characters fade",
+           # mods\voices.py's test folder (voices session, 2026-11-11). Not retired: it ships a copy
+           # of the size table that was installed when it was built, plus its own two entries, and
+           # sorts first so the emulator takes that copy. After this install that copy is out of
+           # date, so the folder goes; `mods\voices.py --install` puts it back, built on the new table.
+           "Character (voice test)"]
+EMULATORS =("lichii.exe", "eden.exe", "yuzu.exe")
 
 
 def emulator_running():

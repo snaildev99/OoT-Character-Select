@@ -130,7 +130,14 @@ LEGS_AS_THEY_ARE = ("Npc_Hylia_MM_003.Npc_Hylia_MM_003",)     # sits: no leg to 
 # have facial animations).
 FACE = True
 RETIRED = ["Character leg retarget (test)", "Character faces (test)"]   # our earlier test folders: the installing build removes them
-EXTRA_MODS = []                 # folders build_mods() makes besides MOD; the caller installs them too
+# Experiment (2026-11-11, dresses; README, NPC section, "Dresses"): the dress hung on Link's
+# simulated tunic skirt (npcrig step 7). DRESS_TEST_MOD is an override folder (it sorts
+# before MOD; switched off in the emulator's Add-Ons list everything is the build without
+# it) with DRESS_TEST_CHARACTERS as child Link; everybody else keeps the stiff dress.
+DRESS_TEST_MOD = "Character dress (test)"
+DRESS_TEST_CHARACTERS = ("Npc_Hylia_WU_Zelda_Child.Npc_Hylia_WU_Zelda_Child",)
+DRESS_TEST_AGE = "Child"
+EXTRA_MODS = [DRESS_TEST_MOD]   # folders build_mods() makes besides MOD; the caller installs them too
 
 HAIR_MATERIAL = "Mt_Hairs"
 HAIR_STAND_INS = ("Mt_Hair", "Mt_Teeth", "Mt_Item_DekuStick")
@@ -221,10 +228,10 @@ def _source_hash():
     return h.hexdigest()
 
 
-def rigged(stem, age, mode="full", legs=None, face=False):
+def rigged(stem, age, mode="full", legs=None, face=False, skirt=False):
     """The NPC model as a player model: (compressed bytes, decompressed size, growth in
     bytes, report). Modes: full (the real thing), lean, raw (EXPERIMENTS); legs = npcrig's
-    legs_mode, face = its step 6 (the face test). Every result is parsed again and checked against the stock
+    legs_mode, face = its step 6, skirt = its step 7 (the dress test). Every result is parsed again and checked against the stock
     model (npcrig.check_rig); cached by content."""
     raw, data = npc_data(stem)
     link_raw = npc_data("Player_%s.Player_%s" % (age, age))[0]
@@ -232,7 +239,7 @@ def rigged(stem, age, mode="full", legs=None, face=False):
                                  b"%d" % ZS_LEVEL, repr((HAIR_MATERIAL, HAIR_STAND_INS)).encode(),
                                  repr((GEAR_AWAY, GEAR_BONES, GEAR_OFFSET)).encode()]
                                 + ([b"legs " + legs.encode()] if legs else [])
-                                + ([b"face"] if face else []))).hexdigest()
+                                + ([b"face"] if face else []) + ([b"skirt"] if skirt else []))).hexdigest()
     path = os.path.join(CACHE, key)
     if os.path.exists(path + ".zs") and os.path.exists(path + ".json"):
         info = json.load(open(path + ".json"))
@@ -244,7 +251,7 @@ def rigged(stem, age, mode="full", legs=None, face=False):
     report = {"bones": (len(m.bones), len(m.bones))}
     if mode != "raw":
         bones, remap, inverse, report = npcrig.player_rig(m, link, add_missing=(mode == "full"),
-                                                          legs_mode=legs, face=face)
+                                                          legs_mode=legs, face=face, skirt=skirt)
         assert not legs or set(report["legs"]) == (set() if stem in LEGS_AS_THEY_ARE else set(npcrig.SIDES)), \
             (stem, "legs", report["legs"])
         missing = [n for n in npcrig.CORE if n != "Root" and n not in report["joints"]]
@@ -261,7 +268,8 @@ def rigged(stem, age, mode="full", legs=None, face=False):
     check_hair_material(after, stem)
     if mode != "raw":
         report["error"] = npcrig.check_rig(before, after, link, report["fixed"], complete=(mode == "full"),
-                                           follow=report["follow"], legs=report["legs"], face=report["face"])
+                                           follow=report["follow"], legs=report["legs"], face=report["face"],
+                                           skirt=report["skirt"])
     else:
         assert [(b.name, b.parent) for b in after.bones] == [(b.name, b.parent) for b in before.bones]
     if GEAR_AWAY and mode == "full":
@@ -331,6 +339,29 @@ def npc_models(mod):
             reports.append((number, stem, age, mode, report))
     print("  %d model files in %.0f s" % (len(reports), time.time() - t0))
     return reports
+
+
+# ---------------------------------------------------------------- the dress test folder
+
+def dress_test(mod):
+    """The folder DRESS_TEST_MOD (see the constants). Returns lines for the build's output."""
+    assert mod < MOD and mod < min(build.MODS), "the test folder must sort before the folders it overrides"
+    notes = []
+    stems = [c["stem"] for c in characters()]
+    for stem in DRESS_TEST_CHARACTERS:
+        zs, size, growth, report = rigged(stem, DRESS_TEST_AGE, "full", legs=LEGS, face=FACE, skirt=True)
+        assert report["skirt"], stem
+        number = stems.index(stem)
+        rel = MODEL_FILE % (DRESS_TEST_AGE, number, DRESS_TEST_AGE)
+        assert os.path.exists(os.path.join(build.BUILD, MOD, "romfs", *rel.split("/"))), "MOD's models come first"
+        build.write(mod, rel, zs, size, build.SIZES, size=model_size_entry(stem, growth))
+        need = pre_actor_need(bfres.Fres(nxfmt.unzs(zs, stem)).model())
+        assert need < min(pre for _, pre in HEAPS.values()), (stem, need)
+        far = max(d for _, d in report["skirt"].values())
+        notes.append("C%03d %s: %d dress bones on Link's skirt (at most %.0f mm from his bone); %d bones; "
+                     "pre-actor heap need %d" % (number, stem.split(".")[1], len(report["skirt"]), far * 1000,
+                                                 report["bones"][1], need))
+    return notes
 
 
 # ---------------------------------------------------------------- retargeting
@@ -708,7 +739,8 @@ def check_model_hook(p, n_npc):
 # exactly as Link does, whatever its size. The + menu's views are left alone for now.
 CAMERA_NEXT = build.CAMERA_BLOCK_NEXT       # 0x8289d1f0: every path of the camera update passes here
 ZOOM_DEADBAND = 0.05                        # closer to Link's height than this: no zoom at all
-ZOOM_MAX = 8.0
+ZOOM_MAX = 32.0                             # Biggoron needs 26.78 (the cap was 8 until 2026-11-11: only his legs showed;
+                                            # snaildev saw him whole at 26.78 in the test copy, Link normal afterwards)
 HEAD = "Head"
 
 
@@ -1021,8 +1053,396 @@ def npc_character_models(mod, n_npc):
     build.keep_camera_hook(p)
     build.view_hook(p)
     factors = zoom_hook(p, n_npc)
+    # The giants' two fixes: every build since snaildev passed both in the test copy (2026-11-11).
+    # A build whose cave has no room left (the UI sandbox's own, with its stick patch) goes
+    # without and says so; the normal build and the field swap build have 16 bytes to spare.
+    for name, hook in (("backdrop_scale", backdrop_scale_hook), ("shadow_keep", shadow_keep_hook)):
+        try:
+            hook(p)
+        except AssertionError as e:
+            if str(e) != "code cave full":
+                raise
+            print("  no room in the code cave for %s: left out of this build" % name)
     build.write_ips(mod, p)
     return p, factors
+
+
+# ---------------------------------------------------------------- giants: the zoom cap and the backdrop (test build)
+
+# snaildev, 2026-11-11: Biggoron does not fit the page (the zoom stops at ZOOM_MAX = 8, he needs
+# 26.8: his feet fill the picture) and behind Medigoron and him the backdrop is a small patch
+# between the feet. The backdrop (Obj_PlusMenuBackground) is a cove of 3.3 m radius and 2.7 m
+# height around the character's feet, made for a camera 4.5 m away, and one actor of the menu
+# actor manager (handle at +0x208, the layout of a slot); the page zoom pulls the camera back
+# about the feet, so the backdrop gets smaller in the picture by the zoom factor.
+# The cap is lifted for every build since snaildev saw Biggoron whole (ZOOM_MAX). How the
+# backdrop came to follow the zoom, in three rounds in the test copy (round 3 is what every
+# build has now, npc_character_models). Round 1: the backdrop
+# actor's scale (+0x34c, three floats) is set to the zoom factor right after the zoom, every
+# camera update: the camera's z after the zoom / the camera block's own z (the pivots' z is 0),
+# and 1 in the views that are not the menu character's.
+# Round 1 (snaildev, 2026-11-11): Biggoron whole on the page, the backdrop still a small patch:
+# the scale in the actor alone does nothing. What draws is the model part's own copy
+# ([[actor +0x270] +0x68]: matrix +0x18, scale +0x48, three floats); the actor's update
+# (0x83af3580) copies matrix and scale there when the part follows its actor (part +0x88 bit
+# 2) and then calls 0x800384e0(part), and the backdrop is a passive actor
+# (PreActorSetting ConstPassive) whose update does not run every frame. Round 2 did those
+# two steps itself. Round 2 (snaildev, same day): still a small patch, and tools\npcbackdrop.py
+# says why: the factor arrives in the actor (1 -> 26.781 with the glide), but this actor has
+# no part at +0x68 at all. Its picture is the model object the update gets from the part at
+# [+0x270] +8 through that part's virtual function +0xf8 (0x83af35e8): the update stores the
+# actor's matrix at model +0x1f8, sets bit 0 of model +0x240 ("matrix is new") and calls
+# 0x802cf7f0(model), which gives every unit of the model that matrix and the scale
+# (model +0x228, three floats) x (model +0x234, three floats). Round 3 does that: every camera
+# update it asks the part for the model, and when the model's second scale (+0x234) is not the
+# factor it writes the factor there, sets the bit and calls 0x802cf7f0 (everything a call may
+# change is saved around the two calls). It assumes that scale is 1 as shipped; the log shows
+# both vectors.
+DISPLAY = False                 # main() --display: the test build as the page looks (no capture changes)
+BACKDROP_HANDLE = 0x208         # in the menu actor manager: +0x10 link, +0x18 id (tools\livetrace.py reads it so)
+ACTOR_STATE, ACTOR_SCALE = 0x2C, 0x34C
+CAMERA_BLOCK_Z = 0x234          # the manager's camera block 0: position z
+MODEL_UPDATE = 0x802cf7f0       # what the actor's update calls on its model after a new matrix
+MODEL_SCALE, MODEL_NEW = 0x234, 0x240   # in the model: the second scale vector, the "matrix is new" byte (bit 0)
+
+def backdrop_scale_hook(p):
+    img = p.img
+    at = CAMERA_NEXT + 4
+    assert img.dis(at, 1) == ["8289d1f4: ldr      w10, [x10, #0x30c]"]
+    assert img.dis(0x8289d188, 1) == ["8289d188: ldr      s9, [x11, #0x234]"]       # s9 = the camera's z
+    # how the game gets the actor of a manager slot (its wake routine, x21 = the slot)
+    assert img.dis(0x80d2b008, 12) == [
+        "80d2b008: ldr      w9, [x21, #0x18]", "80d2b00c: cmn      w9, #1", "80d2b010: b.eq     #0x80d2bc4c",
+        "80d2b014: ldr      x8, [x21, #0x10]", "80d2b018: ldr      w10, [x8, #0x48]", "80d2b01c: cmp      w10, w9",
+        "80d2b020: b.ne     #0x80d2bc4c", "80d2b024: ldr      x8, [x8, #0x40]", "80d2b028: cbz      x8, #0x80d2bc4c",
+        "80d2b02c: ldr      w8, [x8, #0x2c]", "80d2b030: sub      w8, w8, #7", "80d2b034: cmp      w8, #5"]
+    assert all(piv[2] == 0.0 for piv in menu_pivots())
+    # how the actor's update gets its model and hands it a new matrix (x19 actor, x28 model)
+    assert img.dis(0x83af35e8, 5) == [
+        "83af35e8: ldr      x0, [x8, #8]", "83af35ec: cbz      x0, #0x83af363c", "83af35f0: ldr      x8, [x0]",
+        "83af35f4: ldr      x8, [x8, #0xf8]", "83af35f8: blr      x8"]
+    assert img.dis(0x83af3708, 5) == [
+        "83af3708: add      x8, x28, #0x1f8", "83af370c: ldrb     w9, [x28, #0x240]", "83af3710: orr      w9, w9, #1",
+        "83af3714: str      q0, [x8]", "83af3718: strb     w9, [x28, #0x240]"]
+    assert img.dis(0x83af3798, 3) == ["83af3798: cbz      x28, #0x83af37a4", "83af379c: mov      x0, x28",
+                                      "83af37a0: bl       #0x802cf7f0"]
+    # ... and what that routine makes of it: matrix +0x1f8, scale = (+0x228) x (+0x234)
+    assert img.dis(MODEL_UPDATE, 1) == ["802cf7f0: pacibsp  "]
+    assert img.dis(0x802cf87c, 8) == [
+        "802cf87c: ldrb     w8, [x19, #0x240]", "802cf880: tbnz     w8, #0, #0x802cf88c", "802cf884: ldrh     w8, [x20, #0x12]",
+        "802cf888: tbz      w8, #8, #0x802cfbac", "802cf88c: ldr      s0, [x19, #0x228]", "802cf890: ldr      s1, [x19, #0x234]",
+        "802cf894: add      x1, x19, #0x1f8", "802cf898: fmul     s5, s0, s1"]
+    # Around the two calls: x0-x11 and x18 (x12-x17 are free here) and the scalar halves of
+    # v0-v7 (the camera's numbers are single floats; v8-v15 survive a call, v16-v31 are free).
+    # The cave is nearly full: this is the short form of "everything a call may change".
+    save = "\n".join(["stp x%d, x%d, [sp, #%#x]" % (i, i + 1, 8 * i) for i in range(0, 12, 2)] + ["str x18, [sp, #0x60]"]
+                     + ["stp d%d, d%d, [sp, #%#x]" % (i, i + 1, 0x70 + 8 * i) for i in range(0, 8, 2)])
+    load = save.replace("stp", "ldp").replace("str", "ldr")
+    # x9 display type, x10 the manager, x11 just set (kept); x12-x17 and v16-v31 are free; the
+    # function keeps its return address in its frame (zoom_hook checks that), so bl is fine
+    p.cave("backdrop_scale", """
+        fmov s16, #1.0
+        cbnz w9, bs_actor
+        ldr s17, [x10, #%#x]
+        fcmp s17, #0.0
+        b.eq bs_actor
+        fdiv s16, s9, s17
+    bs_actor:
+        ldr w13, [x10, #%#x]
+        cmn w13, #1
+        b.eq bs_out
+        ldr x12, [x10, #%#x]
+        cbz x12, bs_out
+        ldr w14, [x12, #0x48]
+        cmp w14, w13
+        b.ne bs_out
+        ldr x12, [x12, #0x40]
+        cbz x12, bs_out
+        ldr w14, [x12, #%#x]
+        sub w14, w14, #7
+        cmp w14, #5
+        b.lo bs_out
+        str s16, [x12, #%#x]
+        str s16, [x12, #%#x]
+        str s16, [x12, #%#x]
+        ldr x13, [x12, #0x270]
+        cbz x13, bs_out
+        ldr x13, [x13, #8]
+        cbz x13, bs_out
+        sub sp, sp, #0xb0
+        %s
+        str s16, [sp, #0x68]
+        mov x0, x13
+        ldr x8, [x0]
+        ldr x8, [x8, #0xf8]
+        blr x8
+        cbz x0, bs_done
+        ldr s16, [sp, #0x68]
+        ldr s17, [x0, #%#x]
+        fcmp s17, s16
+        b.eq bs_done
+        str s16, [x0, #%#x]
+        str s16, [x0, #%#x]
+        str s16, [x0, #%#x]
+        ldrb w8, [x0, #%#x]
+        orr w8, w8, #1
+        strb w8, [x0, #%#x]
+        bl #%#x
+    bs_done:
+        %s
+        add sp, sp, #0xb0
+    bs_out:
+        ldr w10, [x10, #0x30c]
+        b #%#x
+    """ % (CAMERA_BLOCK_Z, BACKDROP_HANDLE + 0x18, BACKDROP_HANDLE + 0x10, ACTOR_STATE,
+           ACTOR_SCALE, ACTOR_SCALE + 4, ACTOR_SCALE + 8, save, MODEL_SCALE, MODEL_SCALE, MODEL_SCALE + 4, MODEL_SCALE + 8,
+           MODEL_NEW, MODEL_NEW, MODEL_UPDATE, load, at + 4))
+    p.asm(at, "b {backdrop_scale}", expect="ldr w10, [x10, #0x30c]")
+
+
+def check_backdrop_scale(p):
+    """The hook in an ARM64 emulator: the factor into the actor and, when the model's scale
+    is another number, into the model with its "new" bit and one call of the game's update;
+    1 in another view; nothing without a live backdrop actor, a part or a model; no update
+    for a scale the model already has; the replaced instruction done. The part's getter and
+    the update are stand-ins that spoil every register a call may change: the hook must hand
+    them all back. Returns the number of runs."""
+    import unicorn
+    from unicorn import arm64_const as A
+    hook, stop = p.symbols["backdrop_scale"], CAMERA_NEXT + 8
+    uc = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
+    uc.reg_write(A.UC_ARM64_REG_CPACR_EL1, uc.reg_read(A.UC_ARM64_REG_CPACR_EL1) | (3 << 20))
+    mapped = set()
+
+    def need(addr, size):
+        for pg in range(addr & ~0xFFF, (addr + size + 0xFFF) & ~0xFFF, 0x1000):
+            if pg not in mapped:
+                uc.mem_map(pg, 0x1000)
+                mapped.add(pg)
+
+    for addr, data in p.patches:
+        if addr >= 0x83c66000:
+            need(addr, len(data))
+            uc.mem_write(addr, bytes(data))
+    need(stop, 4)
+    heap = 0x10000000
+    uc.mem_map(heap, 0x20000)
+    mgr, link, actor, parts, part, model, stack = (heap + 0x1000, heap + 0x3000, heap + 0x5000, heap + 0x7000, heap + 0x9000,
+                                                   heap + 0xB000, heap + 0x1F000)
+    vtable, getter = heap + 0xD000, 0x80040000
+    spoil = ["mov x%d, #0xbad" % i for i in range(1, 19)] + ["movi v%d.16b, #0xee" % i for i in range(8)] + \
+            ["movi v%d.16b, #0xdd" % i for i in range(16, 32)]
+    for addr, text in ((getter, ["ldr x0, [x0, #0x30]"] + spoil + ["ret"]), (MODEL_UPDATE, ["mov x0, #0xbad"] + spoil + ["ret"])):
+        code = exepatch.assemble("\n".join(text), addr)
+        need(addr, len(code))
+        uc.mem_write(addr, code)
+    calls = []
+    for addr in (getter, MODEL_UPDATE):
+        uc.hook_add(unicorn.UC_HOOK_CODE, lambda u, address, size, data: calls.append((address, u.reg_read(A.UC_ARM64_REG_X0))),
+                    begin=addr, end=addr)
+    guard = lambda v: struct.pack("<5f", 7.0, v, v, v, 9.0)      # the float before, a scale, the float after
+    xregs = [getattr(A, "UC_ARM64_REG_X%d" % i) for i in range(19)]
+    qregs = [getattr(A, "UC_ARM64_REG_Q%d" % i) for i in range(8)]
+
+    def run(display, z, zoomed, hid=0x55, link_at=link, link_id=0x55, actor_at=actor, state=4, parts_at=parts,
+            part_at=part, model_at=model, model_scale=1.0):
+        """-> (actor floats, model floats, the model's "new" byte, the calls made)"""
+        uc.mem_write(mgr, b"\0" * 0x400)
+        uc.mem_write(mgr + CAMERA_BLOCK_Z, struct.pack("<f", z))
+        uc.mem_write(mgr + 0x30C, struct.pack("<I", 0x77))
+        uc.mem_write(mgr + BACKDROP_HANDLE + 0x10, struct.pack("<QI", link_at, hid))
+        uc.mem_write(link + 0x40, struct.pack("<QI", actor_at, link_id))
+        uc.mem_write(actor + ACTOR_STATE, struct.pack("<I", state))
+        uc.mem_write(actor + ACTOR_SCALE - 4, guard(1.0))
+        uc.mem_write(actor + 0x270, struct.pack("<Q", parts_at))
+        uc.mem_write(parts + 8, struct.pack("<Q", part_at))
+        uc.mem_write(part, struct.pack("<Q", vtable))
+        uc.mem_write(part + 0x30, struct.pack("<Q", model_at))
+        uc.mem_write(vtable + 0xF8, struct.pack("<Q", getter))
+        uc.mem_write(model + MODEL_SCALE - 4, guard(model_scale)[:16])      # (the byte after the scale is the "new" byte)
+        uc.mem_write(model + MODEL_NEW, bytes([0x40]))
+        for i, reg in enumerate(xregs):
+            uc.reg_write(reg, 0x1000 + i)
+        for i, reg in enumerate(qregs):
+            uc.reg_write(reg, (0x1111111111111111 * (i + 1)) | ((0x0101010101010101 * (i + 3)) << 64))
+        uc.reg_write(A.UC_ARM64_REG_S9, struct.unpack("<I", struct.pack("<f", zoomed))[0])
+        for reg, v in ((A.UC_ARM64_REG_X9, display), (A.UC_ARM64_REG_X10, mgr), (A.UC_ARM64_REG_X11, 0x84c9e000),
+                       (A.UC_ARM64_REG_X20, 0x1234), (A.UC_ARM64_REG_X29, 0x2929), (A.UC_ARM64_REG_SP, stack)):
+            uc.reg_write(reg, v)
+        del calls[:]
+        uc.emu_start(hook, stop, count=600)
+        assert uc.reg_read(A.UC_ARM64_REG_PC) == stop and uc.reg_read(A.UC_ARM64_REG_X10) == 0x77
+        assert [uc.reg_read(r) for r in (A.UC_ARM64_REG_X9, A.UC_ARM64_REG_X11, A.UC_ARM64_REG_X20, A.UC_ARM64_REG_X29,
+                                         A.UC_ARM64_REG_SP)] == [display, 0x84c9e000, 0x1234, 0x2929, stack]
+        for i, reg in enumerate(xregs):         # x12-x17 are the hook's own; x9-x11 are checked above
+            assert 9 <= i <= 17 or uc.reg_read(reg) == 0x1000 + i, ("x%d" % i, hex(uc.reg_read(reg)))
+        for i, reg in enumerate(qregs):
+            assert uc.reg_read(reg) & (2 ** 64 - 1) == 0x1111111111111111 * (i + 1), "v%d (scalar half)" % i
+        return (struct.unpack("<5f", bytes(uc.mem_read(actor + ACTOR_SCALE - 4, 20))),
+                struct.unpack("<4f", bytes(uc.mem_read(model + MODEL_SCALE - 4, 16))) + (9.0,),
+                uc.mem_read(model + MODEL_NEW, 1)[0], list(calls))
+
+    def f32(x):
+        return struct.unpack("<f", struct.pack("<f", x))[0]
+
+    def five(v):
+        return (7.0, v, v, v, 9.0)
+
+    asked, updated = [(getter, part)], [(getter, part), (MODEL_UPDATE, model)]
+    runs = 0
+    for z in (4.5, 3.5):
+        for f in (1.0, 0.5, 1.65, 8.03, 26.78):
+            v = f32(f32(f32(z) * f32(f)) / f32(z))
+            assert abs(v - f) < 1e-5, (z, f)
+            new = v != 1.0
+            assert run(0, z, f32(z) * f32(f)) == (five(v), five(v), 0x41 if new else 0x40, updated if new else asked), (z, f)
+            assert run(0, z, f32(z) * f32(f), model_scale=v) == (five(v), five(v), 0x40, asked)       # nothing new
+            assert run(3, z, f32(z) * f32(f)) == (five(1.0), five(1.0), 0x40, asked)                # another view: 1, as it was
+            assert run(3, z, f32(z) * f32(f), model_scale=v) == (five(1.0), five(1.0), 0x41 if new else 0x40,
+                                                                 updated if new else asked)        # ... back to 1
+            runs += 4
+    for kw in (dict(hid=0xFFFFFFFF), dict(link_at=0), dict(link_id=0x56), dict(actor_at=0), dict(state=7), dict(state=11)):
+        assert run(0, 4.5, 36.0, **kw) == (five(1.0), five(1.0), 0x40, []), kw
+        runs += 1
+    for kw, made in ((dict(parts_at=0), []), (dict(part_at=0), []), (dict(model_at=0), asked)):      # no part, no model
+        assert run(0, 4.5, 36.0, **kw) == (five(8.0), five(1.0), 0x40, made), kw
+        runs += 1
+    assert run(0, 4.5, 36.0, state=6) == (five(8.0), five(8.0), 0x41, updated)                      # asleep is alive
+    assert run(0, 0.0, 36.0) == (five(1.0), five(1.0), 0x40, asked)                                 # no camera yet: 1
+    return runs + 2
+
+
+# Round 3 (snaildev, 2026-11-11): "Perfect, that fixes the background for all tall characters";
+# tools\npcbackdrop.py: the part's getter is `ldr x0, [x0, #0x18]`, both scale vectors are 1 as
+# shipped, the second follows the factor. New with the floor now under the giants: as a tall
+# character leaves, his shadow flashes for one frame and the light on his body shifts.
+# Suspect (code, not yet seen in data): the page zoom scales the menu scene's depth shadow
+# range with the factor through the game's override (build.zoom_blend_hook: flag 2 in scene
+# +0xd14 and the two floats), every camera update. A slide creates the next character, and
+# "character created" requests a display mode; the request is carried out later in the frame
+# by 0x831dfe10 -> 0x80ea3a30, which ends an override (0x80ea3ab4 clears the flag; its mode 1
+# sets a far of 10 m instead). That frame is drawn with the config's 2.0 .. 8.4 m from a
+# camera that is up to 120 m away: no shadow at all, also none on the body. The next camera
+# update puts the override back. The fix (snaildev, 2026-11-11: "That fixes the shadow"; every
+# build since): where the game's routine clears the
+# flag (0x80ea3ab4) it is left set when the menu character is on show (the manager's display
+# type 0) and the range in force is neither the config's nor the game's own for a new
+# character (1.7 .. 6.0, 0x80c38680), that is: ours. "Character created" and the display type
+# call request modes 0, 2 and 3 only (0x80c36a24, 0x833b6094, 0x80e01f5c), which all go
+# through that clear; mode 1 (other callers) sets a far of 10 m afterwards and is not covered.
+# (A second version that set the range again after the routine did not fit the cave.)
+MENU_GLOBAL = 0x84e9cfa8        # [this] +0x4e8 = the menu actor manager (tools\live.py)
+SHADOW_CLEAR = 0x80ea3ab4
+CREATE_NEAR = 0x3FD9999A        # 1.7 as bits: the near the game sets when it creates a menu character
+
+
+def shadow_keep_hook(p):
+    img = p.img
+    assert img.dis(0x831dff1c, 3) == ["831dff1c: ldr      x0, [x19, #0x1e8]", "831dff20: strb     w8, [x19, #0x2e7]",
+                                      "831dff24: bl       #0x80ea3a30"]
+    # the routine up to the clear uses x8-x10 and x19-x21 only; x10 is a constant it needs later
+    assert img.dis(0x80ea3aa4, 8) == [
+        "80ea3aa4: mov      w10, #0x7fc00000", "80ea3aa8: ldr      x9, [x20, #0x1b70]", "80ea3aac: str      w8, [x9, #0x20]",
+        "80ea3ab0: ldrh     w8, [x20, #0xd14]", "80ea3ab4: and      w9, w8, #0xfffffffd", "80ea3ab8: strh     w9, [x20, #0xd14]",
+        "80ea3abc: ldr      w9, [x19, #0xcd0]", "80ea3ac0: cmp      w9, w10"]
+    assert img.dis(0x80c38680, 2) == ["80c38680: mov      w10, #0x999a", "80c38684: movk     w10, #0x3fd9, lsl #16"]
+    for site in (0x80c36a10, 0x833b6080):       # the modes "character created" and the manager's update request
+        assert [l.split(":", 1)[1].split()[0] for l in img.dis(site, 6)] == ["cmp", "add", "csel", "cmp", "csel", "strb"]
+    assert (build.SCENE_SHADOW_FLAGS, build.SCENE_SHADOW) == (0xD14, 0xD60)
+    near = struct.unpack("<I", struct.pack("<f", build.ui_shadow_range()[0]))[0]
+    assert near != CREATE_NEAR
+    p.cave("shadow_keep", """
+        and w9, w8, #0xfffffffd
+        tbz w8, #1, sk_out
+        adrp x11, #{mg_page:#x}
+        ldr x11, [x11, #{mg_off:#x}]
+        cbz x11, sk_out
+        ldr x11, [x11, #0x4e8]
+        cbz x11, sk_out
+        ldr w12, [x11, #0x228]
+        cbnz w12, sk_out
+        ldr x11, [x20, #{shadow:#x}]
+        cbz x11, sk_out
+        ldr x11, [x11, #0x330]
+        cbz x11, sk_out
+        ldr w12, [x11]
+        movz w13, #{near_lo:#x}
+        movk w13, #{near_hi:#x}, lsl #16
+        cmp w12, w13
+        b.eq sk_out
+        movz w13, #{made_lo:#x}
+        movk w13, #{made_hi:#x}, lsl #16
+        cmp w12, w13
+        b.eq sk_out
+        mov w9, w8
+    sk_out:
+        b #{resume:#x}
+    """.format(mg_page=MENU_GLOBAL & ~0xFFF, mg_off=MENU_GLOBAL & 0xFFF, shadow=build.SCENE_SHADOW,
+               near_lo=near & 0xFFFF, near_hi=near >> 16, made_lo=CREATE_NEAR & 0xFFFF, made_hi=CREATE_NEAR >> 16,
+               resume=SHADOW_CLEAR + 4))
+    p.asm(SHADOW_CLEAR, "b {shadow_keep}", expect="and w9, w8, #0xfffffffd")
+
+
+def check_shadow_keep(p):
+    """The hook in an ARM64 emulator: w9 = the flags the routine stores next. The override
+    flag stays only for display type 0 with a range that is neither the config's nor the
+    game's own for a new character; in every other case, and with a link in the chain
+    missing, it is cleared as the game does. Returns the number of runs."""
+    import unicorn
+    from unicorn import arm64_const as A
+    hook, stop = p.symbols["shadow_keep"], SHADOW_CLEAR + 4
+    uc = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
+    mapped = set()
+
+    def need(addr, size):
+        for pg in range(addr & ~0xFFF, (addr + size + 0xFFF) & ~0xFFF, 0x1000):
+            if pg not in mapped:
+                uc.mem_map(pg, 0x1000)
+                mapped.add(pg)
+
+    for addr, data in p.patches:
+        if addr >= 0x83c66000:
+            need(addr, len(data))
+            uc.mem_write(addr, bytes(data))
+    for at in (stop, MENU_GLOBAL):
+        need(at, 8)
+    heap = 0x10000000
+    uc.mem_map(heap, 0x10000)
+    top, mgr, scene, shadow, floats = heap + 0x1000, heap + 0x3000, heap + 0x5000, heap + 0x7000, heap + 0x9000
+    config = build.ui_shadow_range()
+
+    def run(flags, display, near, top_at=top, mgr_at=mgr, shadow_at=shadow, floats_at=floats):
+        uc.mem_write(MENU_GLOBAL, struct.pack("<Q", top_at))
+        uc.mem_write(top + 0x4E8, struct.pack("<Q", mgr_at))
+        uc.mem_write(mgr + 0x228, struct.pack("<I", display))
+        uc.mem_write(scene + build.SCENE_SHADOW, struct.pack("<Q", shadow_at))
+        uc.mem_write(shadow + 0x330, struct.pack("<Q", floats_at))
+        uc.mem_write(floats, struct.pack("<2f", near, near * 4.2))
+        regs = {A.UC_ARM64_REG_X8: flags, A.UC_ARM64_REG_X10: 0x7FC00000, A.UC_ARM64_REG_X19: 0x1919,
+                A.UC_ARM64_REG_X20: scene, A.UC_ARM64_REG_X21: 2, A.UC_ARM64_REG_SP: heap + 0xF000}
+        for reg, v in regs.items():
+            uc.reg_write(reg, v)
+        uc.reg_write(A.UC_ARM64_REG_X9, 0xDEAD)
+        uc.emu_start(hook, stop, count=100)
+        assert uc.reg_read(A.UC_ARM64_REG_PC) == stop and all(uc.reg_read(reg) == v for reg, v in regs.items())
+        assert bytes(uc.mem_read(floats, 8)) == struct.pack("<2f", near, near * 4.2)
+        return uc.reg_read(A.UC_ARM64_REG_X9)
+
+    made = struct.unpack("<f", struct.pack("<I", CREATE_NEAR))[0]
+    runs = 0
+    for flags in (0x4, 0x6, 0x7, 0x1206):
+        cleared = flags & ~2
+        for near in (config[0] * 0.5, config[0] * 1.65, config[0] * 8.03, config[0] * 26.78):      # ours
+            assert run(flags, 0, near) == flags, (flags, near)                 # kept (or was not set: as it is)
+            assert run(flags, 3, near) == cleared and run(flags, 5, near) == cleared and run(flags, 4, near) == cleared
+            runs += 4
+        for near in (config[0], made):                                         # the game's: cleared as before
+            assert run(flags, 0, near) == cleared, (flags, near)
+            runs += 1
+        for kw in (dict(top_at=0), dict(mgr_at=0), dict(shadow_at=0), dict(floats_at=0)):
+            assert run(flags, 0, config[0] * 8.03, **kw) == cleared, kw
+            runs += 1
+    return runs
 
 
 # ---------------------------------------------------------------- debug buttons
@@ -1272,7 +1692,8 @@ FROZEN_CLIPS = {            # animation file -> {clip: its stock length in frame
 }
 
 
-PORTRAIT_TRIAL = (0, 1, 2, 3, 8)        # Link, Retro Link, Saria, Mido, adult Zelda (a tall one)
+PORTRAIT_TRIAL = (0, 25)                # Link and Biggoron (2026-11-11: his own run, once the zoom lets him fit;
+                                        # before: 0, 1, 2, 3, 8 = Link, Retro Link, Saria, Mido, adult Zelda)
 
 
 def portrait_ring(count):
@@ -1700,6 +2121,10 @@ def build_mods():
     print("\n".join("  " + n for n in retarget(MOD)))
     for mod in RETIRED:
         shutil.rmtree(os.path.join(build.BUILD, mod), ignore_errors=True)
+    for mod in EXTRA_MODS:
+        print(mod, "(test folder)")
+        shutil.rmtree(os.path.join(build.BUILD, mod), ignore_errors=True)
+        print("\n".join("  " + n for n in dress_test(mod)))
     return patcher, factors, reports, pre_heap
 
 
@@ -1711,6 +2136,9 @@ def check_build(patcher, factors, reports, pre_heap):
     runs, zoomed = check_zoom_hook(patcher, n_npc, factors)
     print("  page view: %d camera updates emulated, %d zoomed; factors %.2f .. %.2f"
           % (runs, zoomed, min(min(r) for r in factors), max(max(r) for r in factors)))
+    for name, text, check in (("backdrop_scale", "backdrop scale: %d camera updates emulated", check_backdrop_scale),
+                              ("shadow_keep", "shadow range kept through a display request: %d runs emulated", check_shadow_keep)):
+        print("  " + (text % check(patcher) if name in patcher.symbols else name + ": not in this build (no room in the cave)"))
     worst = check_heaps(pre_heap)
     print("  pre-actor render heap: largest need %d (%s) of %d" % (worst[0], worst[1], min(pre_heap.values())))
 
@@ -1736,8 +2164,11 @@ def main():
     build._swap_step_list = _swap_step_list
     # as the main build (build.main, 2026-11-10): its page zoom in place of ours (same table;
     # it glides during a transition and keeps the shadow range) and the slide as the swap
-    global zoom_hook, check_zoom_hook, GEAR_AWAY
-    GEAR_AWAY = True        # portrait captures: no sword and shield (this test build only)
+    global zoom_hook, check_zoom_hook, GEAR_AWAY, DISPLAY
+    # two test builds: the capture build (default: no backdrop, frozen idle, no gear) and, with
+    # --display, the page as it looks plus the backdrop that follows the zoom (experiment)
+    DISPLAY = "--display" in sys.argv
+    GEAR_AWAY = not DISPLAY     # portrait captures: no sword and shield (this test build only)
     me = sys.modules[__name__]
     zoom_hook = lambda p, n_npc: build.zoom_blend_hook(p, n_npc, me)                            # noqa: E731
     check_zoom_hook = lambda p, n_npc, factors: build.check_zoom_blend(p, n_npc, factors, me)   # noqa: E731
@@ -1749,8 +2180,9 @@ def main():
     print("%d NPC characters, %d in the ring with %s" % (n_npc, n_npc + len(build.CHARACTERS),
                                                          " and ".join(c["name"] for c in build.CHARACTERS)))
     patcher, factors, reports, pre_heap = build_mods()
-    hide_menu_backdrop(MOD)
-    freeze_animations(MOD)
+    if not DISPLAY:
+        hide_menu_backdrop(MOD)
+        freeze_animations(MOD)
     if GEAR_AWAY:
         park_link_gear(MOD)
     for mod, fn in build.EXPERIMENTS.items():
@@ -1763,6 +2195,9 @@ def main():
 
     print("checks")
     check_build(patcher, factors, reports, pre_heap)
+    print("  build: %s; zoom up to %.2f (Biggoron %.2f as a child)" % (
+        "display (backdrop follows the zoom)" if DISPLAY else "capture (no backdrop, frozen idle, no gear)",
+        max(max(r) for r in factors), factors[ring().index("Biggoron")][0]))
     buttons = check_buttons()
     print("  buttons: " + ", ".join("%s %s%d" % (b, "+" if "Add" in buttons[b][0] and buttons[b][1] > 0 else
                                                   "" if "Add" in buttons[b][0] else "= ", buttons[b][1]) for b in buttons))

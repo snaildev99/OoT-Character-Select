@@ -76,6 +76,16 @@ What player_rig() builds, per NPC and per Link age:
    lips), Link's bone is added first and the NPC's bones hang under it. A bone a rigid
    shape hangs on (the eyeballs) keeps its frame; it is bound only when that frame is
    Link's within FACE_RIGID_MAX degrees, else it stays static.
+7. SKIRT (skirt=True; an experiment until seen in game). Link's tunic skirt is a cloth
+   simulation (Phive/Cloth/Player_<age>.phcl, SimulationMesh_Skirt) that moves twelve
+   columns of four bones, Ph_Skirt_1..4_<column>, by name; it hangs by gravity and is
+   pushed out by capsules on his legs. A dress has the same twelve columns under the same
+   names (child Zelda: seven bones each, down to the floor), moved by the NPC's own cloth
+   file, which the player does not load: as a player the dress was a stiff shell on the
+   waist. Here each dress bone of a column hangs under Link's bone of the same place in
+   the column (skirt_map), Link's bones added first as in step 4; the dress bones past
+   Link's last stay a chain under the dress bone above them. So the upper dress moves as
+   Link's tunic skirt does and the lower dress goes on from its hem.
 World rest positions of all NPC bones are unchanged (but for those two pivots);
 check_rig() proves it per file.
 """
@@ -107,6 +117,7 @@ LEG_CHAIN = ("Leg_1", "Leg_2", "Ankle")
 FACE_ROOT = "Face_Root"     # step 6: this bone and every Link bone below it,
 FACE_EXTRA = ("Ear_L", "Ear_R")     # and these
 FACE_RIGID_MAX = 3.0        # degrees a rigid face bone's frame may be off Link's
+SKIRT_TOP = "Ph_Skirt_1_"   # step 7: a skirt column starts at a bone of this name (+ the column's name)
 EPS_POS = 1e-6              # metres
 EPS_ANGLE = 1e-3            # degrees
 
@@ -207,12 +218,36 @@ def _leg_plan(old, w_old, link_by, waist_r, side, rigid, absolute, mode):
     return scale, [hip, knee, list(a)], (math.dist(hip, h), math.dist(knee, k))
 
 
-def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, legs_mode=None, face=False):
+def _column(bones, top):
+    """The chain of bone indices from `top` down, as long as each has exactly one child."""
+    chain = [top]
+    while True:
+        kids = [i for i, b in enumerate(bones) if b.parent == chain[-1]]
+        if len(kids) != 1:
+            return chain
+        chain.append(kids[0])
+
+
+def skirt_map(npc, link):
+    """{NPC bone name: Link bone name} for step 7: the columns both have, bone by bone from
+    the top, as far as Link's column goes."""
+    out = {}
+    npc_index = {b.name: i for i, b in enumerate(npc.bones)}
+    for i, lb in enumerate(link.bones):
+        if lb.name.startswith(SKIRT_TOP) and lb.name in npc_index:
+            ours = _column(npc.bones, npc_index[lb.name])
+            for j, k in zip(ours, _column(link.bones, i)):
+                out[npc.bones[j].name] = link.bones[k].name
+    return out
+
+
+def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, legs_mode=None, face=False,
+               skirt=False):
     """npc, link: bfres.Model. Returns (new bones, remap old->new index,
     {smooth matrix index: new inverse bind Xf}, report dict).
     add_missing=False leaves steps 3 and 4 out (an experiment: fewer bones than Link has);
     follow=() leaves step 4 out (the rig as it was before the ankle fix);
-    legs_mode="retarget" / "scale" is step 5; face=True is step 6."""
+    legs_mode="retarget" / "scale" is step 5; face=True is step 6; skirt=True is step 7."""
     link_by = {b.name: b for b in link.bones}
     link_parent = {b.name: (link.bones[b.parent].name if b.parent >= 0 else None) for b in link.bones}
     old = npc.bones
@@ -233,6 +268,8 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
         face_joints = {n for n in under | set(FACE_EXTRA) if n in npc_names and n in link_by}
         joints |= face_joints
     early = {}                      # Link bones the NPC lacks, added before the face bones under them
+    hang = skirt_map(npc, link) if skirt else {}
+    assert add_missing or not hang
 
     new, w_new, remap = [], [], [None] * len(old)
     w_scale = []                    # per new bone: the uniform scale its children live in (1 but under Sx_ bones)
@@ -244,7 +281,7 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
     # rigid shape hangs on, whose frame cannot change without touching vertices)
     # "follow": {helper name: metres between the NPC's bone and Link's roll axis}
     report = {"offsets": 0, "renamed": [], "turned": {}, "absolute": {}, "unbound": [], "fixed": [], "follow": {},
-              "not following": [], "legs": {}, "face": [], "face static": []}
+              "not following": [], "legs": {}, "face": [], "face static": [], "skirt": {}}
 
     def add(bone, world, link_units=False):
         """world: rotation and place without scale. Under a scaled bone the translation is
@@ -394,6 +431,30 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
                 nb.set_local(rotate=matrix_euler(local_r), translate=lb.translate)
             remap[i] = anchor[i] = add(nb, Xf(target, pos), link_units=True)
             continue
+        if b.name in hang:
+            # Link's simulated bone first (and his bones above it that are not there yet), with
+            # his values and no weights; the dress bone under it, where it was
+            chain, q = [], hang[b.name]
+            while q not in early and not any(x.name == q for x in new):
+                chain.append(q)
+                q = link_parent[q]
+                assert q is not None and q not in npc_names or any(x.name == q for x in new), (b.name, q)
+            up = early[q] if q in early else next(k for k, x in enumerate(new) if x.name == q)
+            for n in reversed(chain):
+                assert n not in npc_names or n in hang, n
+                up = early[n] = add(link_by[n].copy(parent=up, smooth=-1, rigid=-1), below(up, link_by[n]),
+                                    link_units=True)
+            assert w_scale[up] == 1.0 and b.scale == (1.0, 1.0, 1.0), b.name
+            nb = b.copy(parent=up)
+            if b.name in link_by:
+                nb.name = NPC_PREFIX + b.name
+                assert nb.name not in taken, nb.name
+                report["renamed"].append(b.name)
+            nb.set_local(w_new[up].inv() * w_old[i])
+            report["skirt"][b.name] = (hang[b.name], round(math.dist(w_new[up].t, w_old[i].t), 5))
+            remap[i] = add(nb, w_old[i])
+            anchor[i] = a_new
+            continue
         w_helper = None
         if add_missing and b.name in follow and b.name in link_by and new[a_new].name == link_parent[b.name]:
             w_helper = below(a_new, link_by[b.name])
@@ -453,7 +514,7 @@ def _skin_error(xf):
     return max(max(abs(xf.r[i][j] - IDENTITY[i][j]) for i in range(3) for j in range(3)), max(abs(x) for x in xf.t))
 
 
-def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), legs=(), face=()):
+def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), legs=(), face=(), skirt=()):
     """Independent check of a rigged model against the original (both bfres.Model, the
     rigged one parsed again from the written file; `fixed` = report["fixed"] of
     player_rig; complete=False for a rig made with add_missing=False; `follow` =
@@ -625,5 +686,27 @@ def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), le
             move = pose[back[i]] * _inv(w_new[back[i]])
             e = _skin_error(_inv(want) * move if back[i] in under else move)
             assert e < tol, ("face turn of", name, "moves", b.name, e)
+            worst = max(worst, e)
+    # 6. the skirt of step 7: each dress bone hangs under Link's simulated bone (one of the
+    #    added bones checked above), so a turn and shift the simulation gives Link's bone
+    #    moves the dress bone, and what is below Link's bone, as one piece; nothing else moves
+    for name, (target, reported) in sorted(dict(skirt).items()):
+        i, k = old_index[name], index[target]
+        assert k not in kept and new[back[i]].parent == k, ("not on the skirt", name)
+        assert abs(math.dist(w_new[k].t, w_new[back[i]].t) - reported) < tol, name
+        under = set()
+        for j, b in enumerate(new):
+            if j == k or b.parent in under:
+                under.add(j)
+        turn = Xf(euler_matrix((0.4, -0.3, 0.2)), (0.01, -0.02, 0.03))
+        local = Xf(euler_matrix(new[k].rotate), new[k].translate) * turn
+        r = matrix_euler(local.r)
+        pose = rest_world(new, {k: ((r[0], r[1], r[2], 1.0), tuple(local.t))})
+        frame = Xf(_unit(w_new[k]), w_new[k].t)
+        want = frame * turn * _inv(frame)
+        for j, b in enumerate(old):
+            move = pose[back[j]] * _inv(w_new[back[j]])
+            e = _skin_error(_inv(want) * move if back[j] in under else move)
+            assert e < tol, ("skirt move of", target, "moves", b.name, e)
             worst = max(worst, e)
     return worst

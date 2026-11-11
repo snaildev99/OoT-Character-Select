@@ -124,7 +124,12 @@ RETARGET_PACKS = {      # age: (the AnimationParam file in the packs, the packs)
 }
 RETARGET_SKELETON = "Model/%s.Skeleton.bfres.zs"
 LEGS_AS_THEY_ARE = ("Npc_Hylia_MM_003.Npc_Hylia_MM_003",)     # sits: no leg to fit, keeps the first rig
-RETIRED = ["Character leg retarget (test)"]     # our earlier test folders: the installing build removes them
+# The faces (2026-11-11; README, NPC section, "Faces"): the characters' own face bones are
+# bound to Link's face clips (npcrig step 6). Passed in game as a test folder with Saria,
+# Mido and adult Zelda as child Link (snaildev, 2026-11-11: "everything is as expected", they
+# have facial animations).
+FACE = True
+RETIRED = ["Character leg retarget (test)", "Character faces (test)"]   # our earlier test folders: the installing build removes them
 EXTRA_MODS = []                 # folders build_mods() makes besides MOD; the caller installs them too
 
 HAIR_MATERIAL = "Mt_Hairs"
@@ -216,17 +221,18 @@ def _source_hash():
     return h.hexdigest()
 
 
-def rigged(stem, age, mode="full", legs=None):
+def rigged(stem, age, mode="full", legs=None, face=False):
     """The NPC model as a player model: (compressed bytes, decompressed size, growth in
     bytes, report). Modes: full (the real thing), lean, raw (EXPERIMENTS); legs = npcrig's
-    legs_mode (the leg test). Every result is parsed again and checked against the stock
+    legs_mode, face = its step 6 (the face test). Every result is parsed again and checked against the stock
     model (npcrig.check_rig); cached by content."""
     raw, data = npc_data(stem)
     link_raw = npc_data("Player_%s.Player_%s" % (age, age))[0]
     key = hashlib.sha1(b"|".join([raw, link_raw, mode.encode(), age.encode(), _source_hash().encode(),
                                  b"%d" % ZS_LEVEL, repr((HAIR_MATERIAL, HAIR_STAND_INS)).encode(),
                                  repr((GEAR_AWAY, GEAR_BONES, GEAR_OFFSET)).encode()]
-                                + ([b"legs " + legs.encode()] if legs else []))).hexdigest()
+                                + ([b"legs " + legs.encode()] if legs else [])
+                                + ([b"face"] if face else []))).hexdigest()
     path = os.path.join(CACHE, key)
     if os.path.exists(path + ".zs") and os.path.exists(path + ".json"):
         info = json.load(open(path + ".json"))
@@ -238,7 +244,7 @@ def rigged(stem, age, mode="full", legs=None):
     report = {"bones": (len(m.bones), len(m.bones))}
     if mode != "raw":
         bones, remap, inverse, report = npcrig.player_rig(m, link, add_missing=(mode == "full"),
-                                                          legs_mode=legs)
+                                                          legs_mode=legs, face=face)
         assert not legs or set(report["legs"]) == (set() if stem in LEGS_AS_THEY_ARE else set(npcrig.SIDES)), \
             (stem, "legs", report["legs"])
         missing = [n for n in npcrig.CORE if n != "Root" and n not in report["joints"]]
@@ -255,7 +261,7 @@ def rigged(stem, age, mode="full", legs=None):
     check_hair_material(after, stem)
     if mode != "raw":
         report["error"] = npcrig.check_rig(before, after, link, report["fixed"], complete=(mode == "full"),
-                                           follow=report["follow"], legs=report["legs"])
+                                           follow=report["follow"], legs=report["legs"], face=report["face"])
     else:
         assert [(b.name, b.parent) for b in after.bones] == [(b.name, b.parent) for b in before.bones]
     if GEAR_AWAY and mode == "full":
@@ -318,7 +324,8 @@ def npc_models(mod):
     t0 = time.time()
     for number, (stem, mode) in enumerate(jobs):
         for age in AGES:
-            zs, size, growth, report = rigged(stem, age, mode, legs=LEGS if mode == "full" else None)
+            zs, size, growth, report = rigged(stem, age, mode, legs=LEGS if mode == "full" else None,
+                                              face=FACE and mode == "full")
             build.write(mod, MODEL_FILE % (age, number, age), zs, size, build.SIZES,
                         size=model_size_entry(stem, growth))
             reports.append((number, stem, age, mode, report))
@@ -1611,6 +1618,10 @@ def write_list(reports, pre_heap):
             notes.append("legs: first rig (offset bones, the foot IK misses the knee)")
         elif max(legs.values()) > 20:      # the hip or knee pivot is this far from the model's own
             notes.append("leg pivots off " + ", ".join("%s %.0f mm" % kv for kv in legs.items()))
+        if mode == "full" and FACE and not r.get("face"):
+            notes.append("face: no face bones, static")
+        elif r.get("face static"):
+            notes.append("face: static " + ", ".join(r["face static"]))
         if r.get("not following"):
             notes.append("ankle helpers left static (another rest pose): " + ", ".join(r["not following"]))
         extra = [x for x in r.get("fixed", []) if x not in npcrig.ABSOLUTE]

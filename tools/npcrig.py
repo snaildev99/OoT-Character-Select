@@ -65,6 +65,17 @@ What player_rig() builds, per NPC and per Link age:
    Either way the ankle stays exactly where it is; knee and hip pivot move to the nearest
    place on Link's leg directions (report["legs"]; as child Link millimetres for Saria,
    1-2 cm for adults). The mesh does not move (inverse bind matrices follow).
+6. FACE (face=True; an experiment until seen in game). Link's face is animated by clips
+   too (Face_Blink, Face_Talk, Face_Damage ..., and half of the body clips): rotation and
+   translation of the bones under Face_Root, by name. The NPCs have the same bones (lids,
+   brows, lips, cheeks, eyeballs; adult Link's conventions, child Link's lids are 70-80
+   degrees off) within a centimetre of Link's, so here they are bound exactly as the
+   joints of step 1: Link's rest rotation as the frame, an offset bone for the place.
+   Link's turn or shift of a face bone, seen from the head, is then the NPC's. Where Link
+   has a bone between that the NPC lacks (Head_2 above Face_Root, Mouth_Root above the
+   lips), Link's bone is added first and the NPC's bones hang under it. A bone a rigid
+   shape hangs on (the eyeballs) keeps its frame; it is bound only when that frame is
+   Link's within FACE_RIGID_MAX degrees, else it stays static.
 World rest positions of all NPC bones are unchanged (but for those two pivots);
 check_rig() proves it per file.
 """
@@ -93,6 +104,9 @@ SCALE_PREFIX = "Sx_"
 SCALE_FLAGS = 0x01801001    # as OFFSET_FLAGS, scale uniform but not one
 FLAG_SSC = 1 << 23          # segment scale compensate: the parent's own scale does not reach this bone
 LEG_CHAIN = ("Leg_1", "Leg_2", "Ankle")
+FACE_ROOT = "Face_Root"     # step 6: this bone and every Link bone below it,
+FACE_EXTRA = ("Ear_L", "Ear_R")     # and these
+FACE_RIGID_MAX = 3.0        # degrees a rigid face bone's frame may be off Link's
 EPS_POS = 1e-6              # metres
 EPS_ANGLE = 1e-3            # degrees
 
@@ -193,12 +207,12 @@ def _leg_plan(old, w_old, link_by, waist_r, side, rigid, absolute, mode):
     return scale, [hip, knee, list(a)], (math.dist(hip, h), math.dist(knee, k))
 
 
-def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, legs_mode=None):
+def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, legs_mode=None, face=False):
     """npc, link: bfres.Model. Returns (new bones, remap old->new index,
     {smooth matrix index: new inverse bind Xf}, report dict).
     add_missing=False leaves steps 3 and 4 out (an experiment: fewer bones than Link has);
     follow=() leaves step 4 out (the rig as it was before the ankle fix);
-    legs_mode="retarget" / "scale" is step 5."""
+    legs_mode="retarget" / "scale" is step 5; face=True is step 6."""
     link_by = {b.name: b for b in link.bones}
     link_parent = {b.name: (link.bones[b.parent].name if b.parent >= 0 else None) for b in link.bones}
     old = npc.bones
@@ -209,6 +223,16 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
     npc_names = {b.name for b in old}
     joints = {n for n in JOINTS if n in npc_names and n in link_by}
     taken = npc_names | set(link_by)
+    face_joints = set()
+    if face:
+        assert add_missing
+        under = {FACE_ROOT}
+        for lb in link.bones:       # parents come first
+            if link_parent[lb.name] in under:
+                under.add(lb.name)
+        face_joints = {n for n in under | set(FACE_EXTRA) if n in npc_names and n in link_by}
+        joints |= face_joints
+    early = {}                      # Link bones the NPC lacks, added before the face bones under them
 
     new, w_new, remap = [], [], [None] * len(old)
     w_scale = []                    # per new bone: the uniform scale its children live in (1 but under Sx_ bones)
@@ -220,7 +244,7 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
     # rigid shape hangs on, whose frame cannot change without touching vertices)
     # "follow": {helper name: metres between the NPC's bone and Link's roll axis}
     report = {"offsets": 0, "renamed": [], "turned": {}, "absolute": {}, "unbound": [], "fixed": [], "follow": {},
-              "not following": [], "legs": {}}
+              "not following": [], "legs": {}, "face": [], "face static": []}
 
     def add(bone, world, link_units=False):
         """world: rotation and place without scale. Under a scaled bone the translation is
@@ -244,6 +268,32 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
         p_new = remap[b.parent]
         wp_new, wp_old = w_new[p_new], w_old[b.parent]
         a_new = anchor[b.parent]
+        if b.name in face_joints:
+            lb = link_by[b.name]
+            chain, q = [], link_parent[b.name]      # Link's bones between, which the NPC lacks
+            while q is not None and q != new[a_new].name and q not in npc_names:
+                chain.append(q)
+                q = link_parent[q]
+            ok = q == new[a_new].name and b.scale == lb.scale == (1.0, 1.0, 1.0) and w_scale[a_new] == 1.0
+            if ok and i in rigid:
+                wa = w_new[a_new]
+                for n in reversed(chain):
+                    wa = wa * Xf(euler_matrix(link_by[n].rotate), link_by[n].translate)
+                ok = rotation_angle(mat_mul(wa.r, euler_matrix(lb.rotate)), w_old[i].r) <= FACE_RIGID_MAX
+            if ok:
+                for n in reversed(chain):
+                    if n not in early:
+                        early[n] = add(link_by[n].copy(parent=a_new, smooth=-1, rigid=-1), below(a_new, link_by[n]),
+                                       link_units=True)
+                    assert new[early[n]].parent == a_new, n
+                    if p_new == a_new:
+                        p_new, wp_new = early[n], w_new[early[n]]
+                    a_new = early[n]
+                report["face"].append(b.name)
+            else:
+                report["face static"].append(b.name)
+                joints.discard(b.name)
+                face_joints.discard(b.name)
         if b.name in joints and new[a_new].name != link_parent[b.name]:
             # the NPC hangs this joint somewhere else than Link does: Link's values would be
             # read in another frame, so leave it alone (it is renamed below)
@@ -376,7 +426,7 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
         anchor[i] = a_new
 
     index = {b.name: k for k, b in enumerate(new)}
-    added = []
+    added = sorted(early, key=early.get)
     for lb in link.bones if add_missing else ():
         if lb.name in index:
             continue
@@ -403,7 +453,7 @@ def _skin_error(xf):
     return max(max(abs(xf.r[i][j] - IDENTITY[i][j]) for i in range(3) for j in range(3)), max(abs(x) for x in xf.t))
 
 
-def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), legs=()):
+def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), legs=(), face=()):
     """Independent check of a rigged model against the original (both bfres.Model, the
     rigged one parsed again from the written file; `fixed` = report["fixed"] of
     player_rig; complete=False for a rig made with add_missing=False; `follow` =
@@ -434,6 +484,7 @@ def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), le
             assert (nb.smooth, nb.rigid) == (-1, -1) and new[nb.parent].name == link.bones[lb.parent].name, lb.name
             assert (nb.scale, nb.rotate, nb.translate) == (lb.scale, lb.rotate, lb.translate), lb.name
     legs = dict(legs)
+    face = set(face)    # report["face"]: the face bones bound in step 6
     moved = {}      # joint name -> metres its pivot may have moved (step 5)
     own = set()     # bones of Link's names whose offset is the model's own (step 5, "retarget")
     for side, leg in legs.items():
@@ -465,7 +516,8 @@ def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), le
         else:
             assert max(abs(x - y) for x, y in zip(w_old[i].t, w_new[k].t)) < tol, ("moved", b.name)
         turned = rotation_angle(w_old[i].r, _unit(w_new[k])) > 1e-2
-        assert not turned or (new[k].name in JOINTS and new[k].name not in fixed and i not in rigid), ("turned", b.name)
+        assert not turned or ((new[k].name in JOINTS or new[k].name in face) and new[k].name not in fixed
+                              and i not in rigid), ("turned", b.name)
         if b.smooth >= 0 and b.scale == (1.0, 1.0, 1.0):
             e = _skin_error(w_new[k] * after.inverse_bind(b.smooth))
             assert e < tol, ("rest skinning", b.name, e)
@@ -541,5 +593,37 @@ def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), le
             move = pose[back[j]] * _inv(w_new[back[j]])
             e = _skin_error(_inv(want) * move if back[j] in under else move)
             assert e < tol, ("knee bend", side, "moves", b.name, e)
+            worst = max(worst, e)
+    # 5. the face of step 6: each bound face bone has Link's offset and (unless a rigid shape
+    #    hangs on it) Link's rotation, under bones that have the frame of Link's parent; so
+    #    what a clip writes is read as on Link. A turn and shift written into it moves the
+    #    NPC's bone and everything below it as one piece about the NPC's own place, and
+    #    nothing else moves
+    for name in sorted(face):
+        k = index[name]
+        lb = link_by[name]
+        assert k in kept and new[k].translate == lb.translate, name
+        up = new[k].parent
+        while new[up].name.startswith(OFFSET_PREFIX):
+            up = new[up].parent
+        assert new[up].name == link.bones[lb.parent].name, (name, new[up].name)
+        if name in fixed:
+            continue
+        assert new[k].rotate == lb.rotate, name
+        assert rotation_angle(_unit(w_new[new[k].parent]), _unit(w_new[up])) < 1e-2, ("offset bone turned", name)
+        under = set()
+        for j, b in enumerate(new):
+            if j == k or b.parent in under:
+                under.add(j)
+        turn = Xf(euler_matrix((0.3, -0.2, 0.4)), (0.002, -0.003, 0.001))
+        local = Xf(euler_matrix(new[k].rotate), new[k].translate) * turn
+        r = matrix_euler(local.r)
+        pose = rest_world(new, {k: ((r[0], r[1], r[2], 1.0), tuple(local.t))})
+        frame = Xf(_unit(w_new[k]), w_new[k].t)
+        want = frame * turn * _inv(frame)
+        for i, b in enumerate(old):
+            move = pose[back[i]] * _inv(w_new[back[i]])
+            e = _skin_error(_inv(want) * move if back[i] in under else move)
+            assert e < tol, ("face turn of", name, "moves", b.name, e)
             worst = max(worst, e)
     return worst

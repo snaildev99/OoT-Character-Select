@@ -41,6 +41,14 @@ Good to know:
 
 A mod package from this project holds data files only: changed game files (`.zs`, `.ainb`) and four small patches to the game's own code (`.ips`), which run inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If a package claiming to be this mod contains anything else, do not use it.
 
+Packages made by the author, and the SHA-256 sum of each zip:
+
+| Package | SHA-256 |
+| --- | --- |
+| `OoT-Character-Select-v0.1.0.zip` | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
+
+Check a zip you were sent with `certutil -hashfile <zip> SHA256` (Windows) before unpacking it.
+
 Each package comes with `SHA256SUMS.txt` (the sum of every file) and `patch-listings` (every code patch as readable assembly, written by the same build that made the patch). The build is deterministic: the same sources and the same game files give the same bytes, so a package can be rebuilt from this repository and compared. `tools/package.py` makes the package and refuses any file type other than the data files above.
 
 ## Build from source

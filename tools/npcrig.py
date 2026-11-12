@@ -86,6 +86,18 @@ What player_rig() builds, per NPC and per Link age:
    the column (skirt_map), Link's bones added first as in step 4; the dress bones past
    Link's last stay a chain under the dress bone above them. So the upper dress moves as
    Link's tunic skirt does and the lower dress goes on from its hem.
+8. CLOTH (cloth=<the bone names in the NPC's own cloth file>; an experiment until seen in
+   game; instead of step 7). Step 7 passed in game but borrows a short tunic's cloth: the
+   front falls inward, the lower dress is rigid, the veil is still. Here the model is made
+   for the NPC's OWN cloth file running on the player. That file moves bones by name, and
+   so do Link's animations (curves on Ph_Skirt_1_* and the sleeve bones in nearly every
+   clip) and his helper bone parameters, so the NPC's cloth bones may not keep a name of
+   Link's: every cloth bone whose name starts with a word that Link also uses
+   ("Ph_Skirt_", "Ph_Sleeve_") gets that word's last letter replaced by "z"
+   (cloth_alias; same length and same sorting, so the same bytes can be replaced in the
+   cloth file). The top bone of each skirt column, which on the NPC was moved by its own
+   helper bone parameters, hangs under Link's bone of that name as in step 7, so the cloth
+   has a moving bone to hang from; everything else stays where the NPC had it.
 World rest positions of all NPC bones are unchanged (but for those two pivots);
 check_rig() proves it per file.
 """
@@ -241,13 +253,38 @@ def skirt_map(npc, link):
     return out
 
 
+def cloth_alias(names, link_names, taken):
+    """{bone name: its name for step 8}: `names` = the NPC's cloth bones that are not joints."""
+    def word(n):
+        parts = n.split("_")
+        return "_".join(parts[:2]) + "_" if len(parts) > 2 and len(parts[1]) > 1 else None
+
+    def find(w):
+        return w[:-2] + "z_"
+
+    shared = {word(n) for n in link_names} - {None}
+    out = {}
+    for n in sorted(names):
+        w = word(n)
+        if n in link_names:
+            assert w in shared, ("a cloth bone with a name of Link's that cannot be renamed", n)
+        if w in shared:
+            out[n] = find(w) + n[len(w):]
+            assert len(out[n]) == len(n) and out[n] not in taken, out[n]
+    for w in {word(n) for n in out}:
+        # nothing sorts between the old and the new word, so a sorted table stays sorted
+        assert not any(w <= n < find(w) + "~" for n in names if n not in out), w
+    assert len(set(out.values())) == len(out)
+    return out
+
+
 def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, legs_mode=None, face=False,
-               skirt=False):
+               skirt=False, cloth=None):
     """npc, link: bfres.Model. Returns (new bones, remap old->new index,
     {smooth matrix index: new inverse bind Xf}, report dict).
     add_missing=False leaves steps 3 and 4 out (an experiment: fewer bones than Link has);
     follow=() leaves step 4 out (the rig as it was before the ankle fix);
-    legs_mode="retarget" / "scale" is step 5; face=True is step 6; skirt=True is step 7."""
+    legs_mode="retarget" / "scale" is step 5; face=True is step 6; skirt=True is step 7; cloth=<names> is step 8."""
     link_by = {b.name: b for b in link.bones}
     link_parent = {b.name: (link.bones[b.parent].name if b.parent >= 0 else None) for b in link.bones}
     old = npc.bones
@@ -269,6 +306,12 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
         joints |= face_joints
     early = {}                      # Link bones the NPC lacks, added before the face bones under them
     hang = skirt_map(npc, link) if skirt else {}
+    alias = {}
+    if cloth is not None:
+        assert add_missing and not skirt
+        alias = cloth_alias({n for n in cloth if n in npc_names and n not in joints and n != old[0].name},
+                            set(link_by), taken)
+        hang = {n: n for n in alias if n.startswith(SKIRT_TOP) and n in link_by}
     assert add_missing or not hang
 
     new, w_new, remap = [], [], [None] * len(old)
@@ -281,7 +324,7 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
     # rigid shape hangs on, whose frame cannot change without touching vertices)
     # "follow": {helper name: metres between the NPC's bone and Link's roll axis}
     report = {"offsets": 0, "renamed": [], "turned": {}, "absolute": {}, "unbound": [], "fixed": [], "follow": {},
-              "not following": [], "legs": {}, "face": [], "face static": [], "skirt": {}}
+              "not following": [], "legs": {}, "face": [], "face static": [], "skirt": {}, "cloth": alias}
 
     def add(bone, world, link_units=False):
         """world: rotation and place without scale. Under a scaled bone the translation is
@@ -446,7 +489,9 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
                                     link_units=True)
             assert w_scale[up] == 1.0 and b.scale == (1.0, 1.0, 1.0), b.name
             nb = b.copy(parent=up)
-            if b.name in link_by:
+            if b.name in alias:
+                nb.name = alias[b.name]
+            elif b.name in link_by:
                 nb.name = NPC_PREFIX + b.name
                 assert nb.name not in taken, nb.name
                 report["renamed"].append(b.name)
@@ -477,7 +522,9 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
             anchor[i] = a_new
             continue
         nb = b.copy(parent=p_new)
-        if b.name in link_by:
+        if b.name in alias:
+            nb.name = alias[b.name]
+        elif b.name in link_by:
             nb.name = NPC_PREFIX + b.name
             assert nb.name not in taken, nb.name
             report["renamed"].append(b.name)
@@ -514,7 +561,8 @@ def _skin_error(xf):
     return max(max(abs(xf.r[i][j] - IDENTITY[i][j]) for i in range(3) for j in range(3)), max(abs(x) for x in xf.t))
 
 
-def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), legs=(), face=(), skirt=()):
+def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), legs=(), face=(), skirt=(),
+              cloth=()):
     """Independent check of a rigged model against the original (both bfres.Model, the
     rigged one parsed again from the written file; `fixed` = report["fixed"] of
     player_rig; complete=False for a rig made with add_missing=False; `follow` =
@@ -523,11 +571,15 @@ def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), le
     index = {b.name: i for i, b in enumerate(new)}
     link_by = {b.name: b for b in link.bones}
     fixed = set(fixed)
+    cloth = dict(cloth)         # report["cloth"]: {the NPC's name: the name in the rigged model}
     assert len(index) == len(new)
     # the same bones with the same matrices, under their own or their "Nx_" name
     back = {}
     for i, b in enumerate(old):
         n = NPC_PREFIX + b.name if NPC_PREFIX + b.name in index else b.name
+        if b.name in cloth:     # step 8: the cloth bones under their own new names, none of them Link's
+            n = cloth[b.name]
+            assert n not in link_by and len(n) == len(b.name), n
         k = back[i] = index[n]
         assert (new[k].smooth, new[k].rigid, new[k].scale) == (b.smooth, b.rigid, b.scale), ("bone lost", b.name)
     assert len(set(back.values())) == len(old)

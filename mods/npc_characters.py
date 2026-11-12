@@ -137,7 +137,20 @@ RETIRED = ["Character leg retarget (test)", "Character faces (test)"]   # our ea
 DRESS_TEST_MOD = "Character dress (test)"
 DRESS_TEST_CHARACTERS = ("Npc_Hylia_WU_Zelda_Child.Npc_Hylia_WU_Zelda_Child",)
 DRESS_TEST_AGE = "Child"
-EXTRA_MODS = [DRESS_TEST_MOD]   # folders build_mods() makes besides MOD; the caller installs them too
+# Experiment (2026-11-11, her own cloth; README, NPC section, "Dresses"): the dress test
+# passed ("Looks great") but a tunic's cloth is not a dress's. CLOTH_TEST_MOD is an override
+# folder that sorts before the dress test: the player's cloth IS CLOTH_TEST_CHARACTER's own
+# cloth file (bone names changed as npcrig step 8 changes them in the model), with her cloth
+# settings in the player's packs. That is for everybody while the folder is switched on, so
+# the folder also ships her as the plain Link (stored number 0): no model without her cloth
+# bones is loaded unless another character is picked.
+CLOTH_TEST_MOD = "Character cloth (test)"
+CLOTH_TEST_CHARACTER = "Npc_Hylia_WU_Zelda_Child.Npc_Hylia_WU_Zelda_Child"
+CLOTH_TEST_ACTOR = "Npc_Hylia_Zelda_Child"      # her actor pack
+CLOTH_TEST_AGE = "Child"
+CLOTH_TEST_REACTION = {"Mant": "Linl_Hat"}      # a reaction file the player's packs lack -> one they have (the veil: Link's hat)
+CLOTH_FILE = "Phive/Cloth/%s.Nin_Ounce_NVN2.bphcl"
+EXTRA_MODS = [DRESS_TEST_MOD, CLOTH_TEST_MOD]   # folders build_mods() makes besides MOD; the caller installs them too
 
 HAIR_MATERIAL = "Mt_Hairs"
 HAIR_STAND_INS = ("Mt_Hair", "Mt_Teeth", "Mt_Item_DekuStick")
@@ -228,10 +241,19 @@ def _source_hash():
     return h.hexdigest()
 
 
-def rigged(stem, age, mode="full", legs=None, face=False, skirt=False):
+def cloth_file(stem):
+    """The NPC's own cloth file and the bone names in it (npcrig step 8)."""
+    import re
+    name = stem.split(".")[1]
+    data = open(os.path.join(nxfmt.ROMFS, *(CLOTH_FILE % name).split("/")), "rb").read()
+    assert data[:5] == b"Phive", name
+    return data, sorted(set(m.group().decode() for m in re.finditer(rb"[A-Za-z_][A-Za-z0-9_]{2,60}", data)))
+
+
+def rigged(stem, age, mode="full", legs=None, face=False, skirt=False, cloth=False):
     """The NPC model as a player model: (compressed bytes, decompressed size, growth in
     bytes, report). Modes: full (the real thing), lean, raw (EXPERIMENTS); legs = npcrig's
-    legs_mode, face = its step 6, skirt = its step 7 (the dress test). Every result is parsed again and checked against the stock
+    legs_mode, face = its step 6, skirt = its step 7 (the dress test), cloth = its step 8 (the cloth test). Every result is parsed again and checked against the stock
     model (npcrig.check_rig); cached by content."""
     raw, data = npc_data(stem)
     link_raw = npc_data("Player_%s.Player_%s" % (age, age))[0]
@@ -239,7 +261,7 @@ def rigged(stem, age, mode="full", legs=None, face=False, skirt=False):
                                  b"%d" % ZS_LEVEL, repr((HAIR_MATERIAL, HAIR_STAND_INS)).encode(),
                                  repr((GEAR_AWAY, GEAR_BONES, GEAR_OFFSET)).encode()]
                                 + ([b"legs " + legs.encode()] if legs else [])
-                                + ([b"face"] if face else []) + ([b"skirt"] if skirt else []))).hexdigest()
+                                + ([b"face"] if face else []) + ([b"skirt"] if skirt else []) + ([b"cloth"] if cloth else []))).hexdigest()
     path = os.path.join(CACHE, key)
     if os.path.exists(path + ".zs") and os.path.exists(path + ".json"):
         info = json.load(open(path + ".json"))
@@ -251,7 +273,8 @@ def rigged(stem, age, mode="full", legs=None, face=False, skirt=False):
     report = {"bones": (len(m.bones), len(m.bones))}
     if mode != "raw":
         bones, remap, inverse, report = npcrig.player_rig(m, link, add_missing=(mode == "full"),
-                                                          legs_mode=legs, face=face, skirt=skirt)
+                                                          legs_mode=legs, face=face, skirt=skirt,
+                                                          cloth=cloth_file(stem)[1] if cloth else None)
         assert not legs or set(report["legs"]) == (set() if stem in LEGS_AS_THEY_ARE else set(npcrig.SIDES)), \
             (stem, "legs", report["legs"])
         missing = [n for n in npcrig.CORE if n != "Root" and n not in report["joints"]]
@@ -269,7 +292,7 @@ def rigged(stem, age, mode="full", legs=None, face=False, skirt=False):
     if mode != "raw":
         report["error"] = npcrig.check_rig(before, after, link, report["fixed"], complete=(mode == "full"),
                                            follow=report["follow"], legs=report["legs"], face=report["face"],
-                                           skirt=report["skirt"])
+                                           skirt=report["skirt"], cloth=report["cloth"])
     else:
         assert [(b.name, b.parent) for b in after.bones] == [(b.name, b.parent) for b in before.bones]
     if GEAR_AWAY and mode == "full":
@@ -362,6 +385,99 @@ def dress_test(mod):
                      "pre-actor heap need %d" % (number, stem.split(".")[1], len(report["skirt"]), far * 1000,
                                                  report["bones"][1], need))
     return notes
+
+
+# ---------------------------------------------------------------- the cloth test folder
+
+def cloth_test(mod):
+    """The folder CLOTH_TEST_MOD (see the constants). Returns lines for the build's output."""
+    assert mod < DRESS_TEST_MOD < MOD and mod < min(build.MODS), "the test folder must sort before the folders it overrides"
+    notes = []
+    stem, age = CLOTH_TEST_CHARACTER, CLOTH_TEST_AGE
+    player = "Player_" + age
+    zs, size, growth, report = rigged(stem, age, "full", legs=LEGS, face=FACE, cloth=True)
+    alias = report["cloth"]
+    assert alias and report["skirt"], stem
+    number = [c["stem"] for c in characters()].index(stem)
+    for rel in (MODEL_FILE % (age, number, age), "Model/%s.%s.bfres.zs" % (player, player)):
+        build.write(mod, rel, zs, size, build.SIZES, size=model_size_entry(stem, growth))
+    need = pre_actor_need(bfres.Fres(nxfmt.unzs(zs, stem)).model())
+    assert need < min(pre for _, pre in HEAPS.values()), (stem, need)
+    notes.append("C%03d and the plain %s = %s: %d cloth bones renamed, %d of them on Link's skirt tops; %d bones; "
+                 "pre-actor heap need %d" % (number, player, stem.split(".")[1], len(alias), len(report["skirt"]),
+                                             report["bones"][1], need))
+
+    # her cloth file under the player's name, the bone names as in the model
+    data, names = cloth_file(stem)
+    words = sorted({(old[:k], new[:k]) for old, new in alias.items() for k in [len(os.path.commonprefix([old, new])) + 2]})
+    cloth = data
+    for old, new in words:
+        assert old.encode() in cloth and new.encode() not in cloth and len(old) == len(new), (old, new)
+        cloth = cloth.replace(old.encode(), new.encode())
+    after = cloth_file_names(cloth)
+    assert after == sorted(alias.get(n, n) for n in names), "the cloth file's names after the change"
+    model_names = {b.name for b in bfres.Fres(nxfmt.unzs(zs, stem)).model().bones}
+    before_names = {b.name for b in bfres.Fres(npc_data(stem)[1]).model().bones}
+    assert all(alias.get(n, n) in model_names for n in names if n in before_names), "a cloth bone the model lacks"
+    rel = CLOTH_FILE % player
+    stock = build.stock_table().get(rel)
+    assert stock is not None and os.path.exists(os.path.join(nxfmt.ROMFS, *rel.split("/"))) and len(cloth) == len(data)
+    build.write(mod, rel, cloth, len(cloth), build.SIZES, size=max(stock, build.stock_table().get(CLOTH_FILE % stem.split(".")[1])))
+    notes.append("%s = her cloth file, %d bytes, %s" % (rel, len(cloth), ", ".join("%s -> %s" % w for w in words)))
+
+    # her cloth settings in the player's packs (the packs as MOD ships them: retargeted)
+    actor = "Pack/Actor/%s.pack.zs" % CLOTH_TEST_ACTOR
+    hers = nxfmt.sarc_files(nxfmt.unzs(open(os.path.join(nxfmt.ROMFS, actor), "rb").read(), actor))
+    name = stem.split(".")[1]
+    her_param = byml.load(bytes(hers["Phive/ClothParam/%s.phive__ClothParam.bgyml" % name]))
+    her_set = byml.load(bytes(hers["Phive/ControllerSetParam/%s.phive__ControllerSetParam.bgyml" % name]))
+    param_file = "Phive/ClothParam/%s.phive__ClothParam.bgyml" % player
+    for pack in RETARGET_PACKS[age][1]:
+        rel = "Pack/Actor/%s.pack.zs" % pack
+        raw = open(os.path.join(build.BUILD, MOD, "romfs", *rel.split("/")), "rb").read()
+        stock_raw = open(os.path.join(nxfmt.ROMFS, rel), "rb").read()
+        data = nxfmt.unzs(raw, rel)
+        files = nxfmt.sarc_files(data)
+        set_file = "Phive/ControllerSetParam/%s.phive__ControllerSetParam.bgyml" % pack
+        changes = {}
+        old = bytes(files[param_file])
+        param = byml.load(old)
+        assert byml.dump(param, byml.version_of(old)) == old and set(param) == set(her_param), param_file
+        new_param = dict(her_param, HktPath=param["HktPath"])
+        new_param["MeshList"] = [dict(m, BaseBone=alias.get(m["BaseBone"], m["BaseBone"])) for m in her_param["MeshList"]]
+        assert all(m["BaseBone"] in model_names for m in new_param["MeshList"]), "a base bone the model lacks"
+        changes[param_file] = byml.dump(new_param, byml.version_of(old))
+        assert byml.load(changes[param_file]) == new_param
+        old = bytes(files[set_file])
+        cset = byml.load(old)
+        assert byml.dump(cset, byml.version_of(old)) == old
+        assert cset["Cloth"] == [{"FilePath": "Work/Phive/ClothParam/%s.phive__ClothParam.gyml" % player, "Name": "Default"}]
+        assert cset["ClothList"] == [{"Name": "Default", "Path": "Work/Phive/Cloth/%s.phcl" % player}]
+        reactions = []
+        for r in her_set["ClothReaction"]:
+            stem_r = r["FilePath"].split("/")[-1].split(".")[0]
+            stem_r = CLOTH_TEST_REACTION.get(stem_r, stem_r)
+            assert "Phive/ClothReaction/%s.phive__ClothReaction.bgyml" % stem_r in files, (pack, stem_r)
+            reactions.append({"FilePath": "Work/Phive/ClothReaction/%s.phive__ClothReaction.gyml" % stem_r, "Name": r["Name"]})
+        assert [m["Name"] for m in new_param["MeshList"]] and \
+            {m["Name"] for m in new_param["MeshList"]} == {r["Name"] for r in reactions} == \
+            {o["Name"] for o in her_set["ClothAdvandecOption"]}
+        cset["ClothReaction"] = reactions
+        cset["ClothAdvandecOption"] = [dict(o) for o in her_set["ClothAdvandecOption"]]
+        changes[set_file] = byml.dump(cset, byml.version_of(old))
+        assert byml.load(changes[set_file]) == cset
+        out = nxpack.sarc_replace(data, changes)
+        got = nxfmt.sarc_files(out)
+        assert all(bytes(got[k]) == (changes[k] if k in changes else bytes(v)) for k, v in files.items()) and len(got) == len(files)
+        build.write(mod, rel, nxpack.zs_compress_like(out, stock_raw), len(out), build.SIZES)
+        notes.append("%s: her cloth settings (%d meshes: %s; %d collidables)" % (
+            pack, len(reactions), ", ".join(r["Name"].split("_")[-1] for r in reactions), len(new_param["CollidableList"])))
+    return notes
+
+
+def cloth_file_names(data):
+    import re
+    return sorted(set(m.group().decode() for m in re.finditer(rb"[A-Za-z_][A-Za-z0-9_]{2,60}", data)))
 
 
 # ---------------------------------------------------------------- retargeting
@@ -2222,7 +2338,7 @@ def build_mods():
     for mod in EXTRA_MODS:
         print(mod, "(test folder)")
         shutil.rmtree(os.path.join(build.BUILD, mod), ignore_errors=True)
-        print("\n".join("  " + n for n in dress_test(mod)))
+        print("\n".join("  " + n for n in (cloth_test if mod == CLOTH_TEST_MOD else dress_test)(mod)))
     return patcher, factors, reports, pre_heap
 
 

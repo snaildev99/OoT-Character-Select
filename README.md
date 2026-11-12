@@ -4,7 +4,7 @@ A full character select for *The Legend of Zelda: Ocarina of Time* on Switch 2: 
 
 **[Watch the demo video](https://vimeo.com/1246160686)** (2:45) · **[Download the latest release](https://github.com/snaildev99/OoT-Character-Select/releases/latest)**
 
-[![Screenshot of the mod; opens the demo video](docs/images/screenshot-1.jpg)](https://vimeo.com/1246160686)
+[![Saria as the player; opens the demo video](docs/images/saria-1.jpg)](https://vimeo.com/1246160686)
 
 Not affiliated with or endorsed by Nintendo. No game files are included; you need your own copy of the game. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 

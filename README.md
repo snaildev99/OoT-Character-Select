@@ -59,6 +59,7 @@ Planned:
 
 ## Good to know
 
+- **Known issue in v0.1.1: the adult does not load.** Going through the Door of Time ends on a loading screen that never finishes, and an adult save is expected to do the same. Use a child save for now; a fix is being tested.
 - **Button prompt mods conflict.** They replace the same texture file, so use either one of those or this mod.
 - **Names.** Most of the generic NPCs are still listed under their file names.
 - **Riding.** Swapping while riding is not handled yet.

@@ -3,12 +3,13 @@ one zip, with a list of SHA-256 sums and the readable listings of the code patch
 
     venv\\Scripts\\python.exe tools\\package.py <version> [--name <name>] [--allow-untested]
 
-What goes in is build\\<folder> for the folders install-mods.bat installs. Unless
+What goes in is build\\<folder> for the folders install-mods.bat installs, plus the
+voices folder of mods\\voices.py (build-voice\\mod; it is installed after the others). Unless
 --allow-untested is given, each of them must be byte for byte what is installed in the
 emulator's mods folder, i.e. what was played. Left out: files of third-party models that
 are not ours to pass on (RETRO: Retro Link; nothing in the package can ask for them, the
-picker does not offer that character). The package holds data files only (.zs, .ainb,
-.ips and texts); this script refuses anything else. The zip is written with fixed dates
+picker does not offer that character). The package holds data files only (the game's
+file types in DATA, .ips and texts); this script refuses anything else. The zip is written with fixed dates
 and in a fixed order, so the same build always gives the same zip (and the same sum).
 """
 import hashlib
@@ -26,10 +27,14 @@ import exepatch  # noqa: E402
 
 NAME = "OoT-Character-Select"
 DIST = os.path.join(ROOT, "dist")
-FOLDERS = ["Character field swap", "Character models", "Characters page", "Header four tabs", "NPC characters"]
+VOICE_BUILD = os.path.join(ROOT, "build-voice", "mod")
+# in the order the emulator layers them; a folder not in SOURCES comes from build.BUILD
+FOLDERS = ["Character (voice test)", "Character cloth (test)", "Character dress (test)", "Character field swap",
+           "Character models", "Characters page", "Header four tabs", "NPC characters"]
+SOURCES = {"Character (voice test)": VOICE_BUILD}
 RETRO = "_Retro"                    # in the file names of the Retro Link model and its textures
 RETRO_FILES = 10
-DATA = (".zs", ".ainb", ".ips")
+DATA = (".zs", ".ainb", ".ips", ".bwav", ".bphcl")     # .bwav: voice clips, .bphcl: a cloth file
 DATE = (2026, 1, 1, 0, 0, 0)        # every entry's date: the zip depends on the contents only
 
 INSTALL = """{name} {version}
@@ -41,32 +46,41 @@ What it does
   (Link and the game's NPCs) and play as them. A picks, B closes the menu, and the
   character you picked becomes the one you play at once.
 
+  The characters are model swaps on Link's animations, with basic facial animation
+  and legs that follow slopes. Saria and young Zelda also have their own voices, and
+  young Zelda's dress has experimental cloth physics. Only a handful of the 99 have
+  been tested in play: expect visual faults on most of the others.
+
 Install (emulator)
   1. Close the game.
   2. In the emulator's game list, right-click the game and choose "Open Mod Data
      Location". That opens the folder ...\\load\\0400486024DEC000.
-  3. Copy the five folders from this zip's "mods" folder into it, names unchanged:
+  3. Copy the {count} folders from this zip's "mods" folder into it, names unchanged:
 {folders}
      (The names matter: the emulator layers mod folders in name order.)
   4. Start the game. The folders show up in the game's properties under Add-Ons and
      can be switched off there one by one.
 
 Remove
-  Delete the five folders. The mod adds one saved number to the save file (the picked
+  Delete the {count} folders. The mod adds one saved number to the save file (the picked
   character); without the mod the game ignores it.
 
 Good to know
-  - Back up your save first. This is a first test version.
+  - Back up your save first. This is an early test version.
   - Only game version 1.1.1. On another version the code patches do not apply and the
     rest will not work: switch the folders off.
   - It replaces the layout texture file that button prompt mods also replace, so one of
     those and this mod cannot both be on.
   - "Character field swap" alone can be switched off: the picked character then shows
     in the field after save, return to title and Continue.
+  - The three folders with "test" in the name can be switched off too: the voices
+    ("Character (voice test)") and young Zelda's cloth ("Character cloth (test)", and
+    "Character dress (test)", which is used when the cloth folder is off).
 
 What is in here
-  Data files only: game files changed by the build (.zs, .ainb) and four small code
-  patches for the game itself (.ips, applied to the game's code inside the emulator).
+  Data files only: game files changed or added by the build (.zs, .ainb, .bwav,
+  .bphcl) and {patches} small code patches for the game itself (.ips, applied to the
+  game's code inside the emulator).
   Nothing in this zip runs on your computer: no programs, scripts or installers.
   "patch-listings" has every code patch as readable assembly.
   SHA256SUMS.txt lists the sum of every file. The sources that build these files from
@@ -83,7 +97,7 @@ def collect(check_installed=True):
     """[(path in the zip, bytes)] and the names left out."""
     out, left_out = [], []
     for folder in FOLDERS:
-        base = os.path.join(build.BUILD, folder)
+        base = os.path.join(SOURCES.get(folder, build.BUILD), folder)
         assert os.path.isdir(base), base
         files = sorted(os.path.relpath(os.path.join(r, n), base) for r, _d, names in os.walk(base) for n in names)
         if check_installed:
@@ -102,7 +116,7 @@ def collect(check_installed=True):
                 left_out.append(folder + "/" + rel.replace(os.sep, "/"))
                 continue
             out.append(("mods/%s/%s" % (folder, rel.replace(os.sep, "/")), data))
-        listing = os.path.join(build.BUILD, folder + ".listing.txt")
+        listing = os.path.join(SOURCES.get(folder, build.BUILD), folder + ".listing.txt")
         if os.path.exists(listing):
             out.append(("patch-listings/%s.txt" % folder, open(listing, "rb").read()))
     assert len(left_out) == RETRO_FILES and not any(RETRO in name for name, _ in out), left_out
@@ -123,7 +137,9 @@ def main():
     assert len(args) == 1, __doc__
     version = args[0]
     files, left_out = collect("--allow-untested" not in sys.argv)
-    text = INSTALL.format(name=name, version=version, build_id=exepatch.BUILD_ID,
+    words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+    text = INSTALL.format(name=name, version=version, build_id=exepatch.BUILD_ID, count=words[len(FOLDERS)],
+                          patches=words[sum(n.endswith(".ips") for n, _ in files)],
                           folders="\n".join("       " + f for f in FOLDERS))
     files.append(("INSTALL.txt", text.replace("\n", "\r\n").encode("utf-8")))
     files.sort()

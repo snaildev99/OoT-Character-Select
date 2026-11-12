@@ -26,6 +26,7 @@ list is a ring and any number is valid. The normal build shows Link for numbers 
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import sys
@@ -139,17 +140,41 @@ DRESS_TEST_CHARACTERS = ("Npc_Hylia_WU_Zelda_Child.Npc_Hylia_WU_Zelda_Child",)
 DRESS_TEST_AGE = "Child"
 # Experiment (2026-11-11, her own cloth; README, NPC section, "Dresses"): the dress test
 # passed ("Looks great") but a tunic's cloth is not a dress's. CLOTH_TEST_MOD is an override
-# folder that sorts before the dress test: the player's cloth IS CLOTH_TEST_CHARACTER's own
-# cloth file (bone names changed as npcrig step 8 changes them in the model), with her cloth
-# settings in the player's packs. That is for everybody while the folder is switched on, so
-# the folder also ships her as the plain Link (stored number 0): no model without her cloth
-# bones is loaded unless another character is picked.
+# folder that sorts before the dress test: CLOTH_TEST_CHARACTER's own cloth file (bone names
+# changed as npcrig step 8 changes them in the model) and her cloth settings, as the player's
+# cloth. First version (passed in game, snaildev, 2026-11-11: "those cloth physics are working
+# great"): in place of Link's files, so for everybody, and the folder made the plain Link
+# her. Second version: her settings under names of her own and a hook on the routines that
+# turn a parameter reference into a file path: no effect in game (the game had loaded
+# Link's settings long before; README). Now: ONE set of settings for both in Link's files
+# (his entries, then hers; her two mesh names that he also has are changed as the bone
+# names are), her cloth file under a name of her own (CLOTH_NAME), and a code hook
+# (cloth_hook) on the routine that names a cloth file: while her number is stored, the
+# player's cloth file is hers.
 CLOTH_TEST_MOD = "Character cloth (test)"
 CLOTH_TEST_CHARACTER = "Npc_Hylia_WU_Zelda_Child.Npc_Hylia_WU_Zelda_Child"
 CLOTH_TEST_ACTOR = "Npc_Hylia_Zelda_Child"      # her actor pack
 CLOTH_TEST_AGE = "Child"
 CLOTH_TEST_REACTION = {"Mant": "Linl_Hat"}      # a reaction file the player's packs lack -> one they have (the veil: Link's hat)
 CLOTH_FILE = "Phive/Cloth/%s.Nin_Ounce_NVN2.bphcl"
+CLOTH_NAME = "%s_C%s"       # a pack's / the player's name, cloth_letters(stored number): the files of a character's own cloth
+CLOTH_SET = "Phive/ControllerSetParam/%s.phive__ControllerSetParam.bgyml"
+CLOTH_PARAM = "Phive/ClothParam/%s.phive__ClothParam.bgyml"
+# the game's code (image.bin addresses; README, NPC section, "Dresses")
+# (out string, &path, flag) -> found: the physics file types whose files are not named as
+# parameter files are; a cloth file: "Work/Phive/Cloth/X.phcl" -> "Phive/Cloth/X.Nin_Ounce_NVN2.bphcl".
+# The two routines that convert parameter references (0x803fbc80, 0x8071f0a0) ask it first.
+CLOTH_PATH_ROUTINE = 0x8071fa60
+CLOTH_DIR = "Work/Phive/Cloth/"
+CLOTH_STEM = "Player_Child.phcl"    # after CLOTH_DIR, to the end of the path
+CLOTH_MAX = 103                     # the hook's table: one bit per stored number 0..CLOTH_MAX
+# Where the hook goes: the body of a sequence node class nothing uses (as the field swap and
+# the voices do with other classes; the padding after .text is full). check_unused_node
+# checks at every build what made it the one. By hand, 2026-11-11: none of the game's 16753
+# packs, graphs and parameter files has the name.
+CLOTH_DEAD_NODE = "SeqOneShotLuaScript"
+CLOTH_DEAD = (0x832f7090, 0x832f725c)
+CLOTH_DEAD_SHA1 = "84c10ccbc5a758487d974ef7240a82ec157b7c98"    # its bytes in game v1.1.1
 EXTRA_MODS = [DRESS_TEST_MOD, CLOTH_TEST_MOD]   # folders build_mods() makes besides MOD; the caller installs them too
 
 HAIR_MATERIAL = "Mt_Hairs"
@@ -389,90 +414,493 @@ def dress_test(mod):
 
 # ---------------------------------------------------------------- the cloth test folder
 
+def cloth_letters(stored):
+    """Two letters A-P for a stored character number (its hex digits; the hook writes them)."""
+    assert 0 < stored <= CLOTH_MAX
+    return chr(0x41 + (stored >> 4)) + chr(0x41 + (stored & 15))
+
+
 def cloth_test(mod):
     """The folder CLOTH_TEST_MOD (see the constants). Returns lines for the build's output."""
     assert mod < DRESS_TEST_MOD < MOD and mod < min(build.MODS), "the test folder must sort before the folders it overrides"
     notes = []
     stem, age = CLOTH_TEST_CHARACTER, CLOTH_TEST_AGE
     player = "Player_" + age
+    assert CLOTH_STEM == player + ".phcl"
     zs, size, growth, report = rigged(stem, age, "full", legs=LEGS, face=FACE, cloth=True)
     alias = report["cloth"]
     assert alias and report["skirt"], stem
     number = [c["stem"] for c in characters()].index(stem)
-    for rel in (MODEL_FILE % (age, number, age), "Model/%s.%s.bfres.zs" % (player, player)):
-        build.write(mod, rel, zs, size, build.SIZES, size=model_size_entry(stem, growth))
+    stored = len(build.CHARACTERS) + number
+    assert ring()[stored] == characters()[number]["label"]
+    own = CLOTH_NAME % (player, cloth_letters(stored))
+    build.write(mod, MODEL_FILE % (age, number, age), zs, size, build.SIZES, size=model_size_entry(stem, growth))
     need = pre_actor_need(bfres.Fres(nxfmt.unzs(zs, stem)).model())
     assert need < min(pre for _, pre in HEAPS.values()), (stem, need)
-    notes.append("C%03d and the plain %s = %s: %d cloth bones renamed, %d of them on Link's skirt tops; %d bones; "
-                 "pre-actor heap need %d" % (number, player, stem.split(".")[1], len(alias), len(report["skirt"]),
+    notes.append("C%03d (stored number %d) = %s: %d cloth bones renamed, %d of them on Link's skirt tops; %d bones; "
+                 "pre-actor heap need %d" % (number, stored, stem.split(".")[1], len(alias), len(report["skirt"]),
                                              report["bones"][1], need))
 
-    # her cloth file under the player's name, the bone names as in the model
+    # her cloth settings, read first: her mesh names that Link's settings also have get a new name
+    actor = "Pack/Actor/%s.pack.zs" % CLOTH_TEST_ACTOR
+    hers = nxfmt.sarc_files(nxfmt.unzs(open(os.path.join(nxfmt.ROMFS, actor), "rb").read(), actor))
+    name = stem.split(".")[1]
+    her_param = byml.load(bytes(hers[CLOTH_PARAM % name]))
+    her_set = byml.load(bytes(hers[CLOTH_SET % name]))
+    link_pack = "Pack/Actor/%s.pack.zs" % player
+    link_files = nxfmt.sarc_files(nxfmt.unzs(open(os.path.join(nxfmt.ROMFS, link_pack), "rb").read(), link_pack))
+    link_param = byml.load(bytes(link_files[CLOTH_PARAM % player]))
+    link_meshes = {m["Name"] for m in link_param["MeshList"]}
+    mesh_alias = {m["Name"]: m["Name"][:-1] + "z" for m in her_param["MeshList"] if m["Name"] in link_meshes}
+    assert not set(mesh_alias.values()) & (link_meshes | {m["Name"] for m in her_param["MeshList"]})
+
+    # her cloth file under a name of her own, the bone names as in the model
     data, names = cloth_file(stem)
     words = sorted({(old[:k], new[:k]) for old, new in alias.items() for k in [len(os.path.commonprefix([old, new])) + 2]})
+    words += sorted(mesh_alias.items())
+
+    def renamed(n):
+        for old, new in words:
+            n = n.replace(old, new)
+        return n
     cloth = data
     for old, new in words:
         assert old.encode() in cloth and new.encode() not in cloth and len(old) == len(new), (old, new)
         cloth = cloth.replace(old.encode(), new.encode())
     after = cloth_file_names(cloth)
-    assert after == sorted(alias.get(n, n) for n in names), "the cloth file's names after the change"
+    assert after == sorted({renamed(n) for n in names}), "the cloth file's names after the change"
+    assert all(renamed(n) == alias.get(n, mesh_alias.get(n)) for n in names if n in alias or n in mesh_alias)
     model_names = {b.name for b in bfres.Fres(nxfmt.unzs(zs, stem)).model().bones}
     before_names = {b.name for b in bfres.Fres(npc_data(stem)[1]).model().bones}
     assert all(alias.get(n, n) in model_names for n in names if n in before_names), "a cloth bone the model lacks"
-    rel = CLOTH_FILE % player
-    stock = build.stock_table().get(rel)
-    assert stock is not None and os.path.exists(os.path.join(nxfmt.ROMFS, *rel.split("/"))) and len(cloth) == len(data)
-    build.write(mod, rel, cloth, len(cloth), build.SIZES, size=max(stock, build.stock_table().get(CLOTH_FILE % stem.split(".")[1])))
+    assert all(mesh_alias.get(m["Name"], m["Name"]) in after for m in her_param["MeshList"])
+    assert all(c["Name"] in after for c in her_param["CollidableList"])
+    rel = CLOTH_FILE % own
+    stock = build.stock_table()
+    assert stock.get(rel) is None and len(cloth) == len(data)
+    build.write(mod, rel, cloth, len(cloth), build.SIZES, size=stock.get(CLOTH_FILE % stem.split(".")[1]))
     notes.append("%s = her cloth file, %d bytes, %s" % (rel, len(cloth), ", ".join("%s -> %s" % w for w in words)))
 
-    # her cloth settings in the player's packs (the packs as MOD ships them: retargeted)
-    actor = "Pack/Actor/%s.pack.zs" % CLOTH_TEST_ACTOR
-    hers = nxfmt.sarc_files(nxfmt.unzs(open(os.path.join(nxfmt.ROMFS, actor), "rb").read(), actor))
-    name = stem.split(".")[1]
-    her_param = byml.load(bytes(hers["Phive/ClothParam/%s.phive__ClothParam.bgyml" % name]))
-    her_set = byml.load(bytes(hers["Phive/ControllerSetParam/%s.phive__ControllerSetParam.bgyml" % name]))
-    param_file = "Phive/ClothParam/%s.phive__ClothParam.bgyml" % player
+    # one set of cloth settings for both in the player's packs (the packs as MOD ships them: retargeted)
     for pack in RETARGET_PACKS[age][1]:
         rel = "Pack/Actor/%s.pack.zs" % pack
         raw = open(os.path.join(build.BUILD, MOD, "romfs", *rel.split("/")), "rb").read()
         stock_raw = open(os.path.join(nxfmt.ROMFS, rel), "rb").read()
         data = nxfmt.unzs(raw, rel)
         files = nxfmt.sarc_files(data)
-        set_file = "Phive/ControllerSetParam/%s.phive__ControllerSetParam.bgyml" % pack
         changes = {}
-        old = bytes(files[param_file])
+        old = bytes(files[CLOTH_PARAM % player])
         param = byml.load(old)
-        assert byml.dump(param, byml.version_of(old)) == old and set(param) == set(her_param), param_file
-        new_param = dict(her_param, HktPath=param["HktPath"])
-        new_param["MeshList"] = [dict(m, BaseBone=alias.get(m["BaseBone"], m["BaseBone"])) for m in her_param["MeshList"]]
-        assert all(m["BaseBone"] in model_names for m in new_param["MeshList"]), "a base bone the model lacks"
-        changes[param_file] = byml.dump(new_param, byml.version_of(old))
-        assert byml.load(changes[param_file]) == new_param
-        old = bytes(files[set_file])
+        assert byml.dump(param, byml.version_of(old)) == old and set(param) == set(her_param) and param == link_param, pack
+        new_param = dict(param)
+        mine = {c["Name"]: c for c in param["CollidableList"]}
+        assert all(mine.get(c["Name"], c) == c for c in her_param["CollidableList"]), "a collidable both have, but not the same"
+        new_param["CollidableList"] = list(param["CollidableList"]) + [dict(c) for c in her_param["CollidableList"] if c["Name"] not in mine]
+        her_meshes = [dict(m, Name=mesh_alias.get(m["Name"], m["Name"]), BaseBone=alias.get(m["BaseBone"], m["BaseBone"]))
+                      for m in her_param["MeshList"]]
+        assert all(m["BaseBone"] in model_names for m in her_meshes), "a base bone the model lacks"
+        new_param["MeshList"] = list(param["MeshList"]) + her_meshes
+        assert len({m["Name"] for m in new_param["MeshList"]}) == len(new_param["MeshList"])
+        changes[CLOTH_PARAM % player] = byml.dump(new_param, byml.version_of(old))
+        assert byml.load(changes[CLOTH_PARAM % player]) == new_param
+        old = bytes(files[CLOTH_SET % pack])
         cset = byml.load(old)
         assert byml.dump(cset, byml.version_of(old)) == old
         assert cset["Cloth"] == [{"FilePath": "Work/Phive/ClothParam/%s.phive__ClothParam.gyml" % player, "Name": "Default"}]
-        assert cset["ClothList"] == [{"Name": "Default", "Path": "Work/Phive/Cloth/%s.phcl" % player}]
+        assert cset["ClothList"] == [{"Name": "Default", "Path": CLOTH_DIR + CLOTH_STEM}]
         reactions = []
         for r in her_set["ClothReaction"]:
             stem_r = r["FilePath"].split("/")[-1].split(".")[0]
             stem_r = CLOTH_TEST_REACTION.get(stem_r, stem_r)
             assert "Phive/ClothReaction/%s.phive__ClothReaction.bgyml" % stem_r in files, (pack, stem_r)
-            reactions.append({"FilePath": "Work/Phive/ClothReaction/%s.phive__ClothReaction.gyml" % stem_r, "Name": r["Name"]})
-        assert [m["Name"] for m in new_param["MeshList"]] and \
-            {m["Name"] for m in new_param["MeshList"]} == {r["Name"] for r in reactions} == \
-            {o["Name"] for o in her_set["ClothAdvandecOption"]}
-        cset["ClothReaction"] = reactions
-        cset["ClothAdvandecOption"] = [dict(o) for o in her_set["ClothAdvandecOption"]]
-        changes[set_file] = byml.dump(cset, byml.version_of(old))
-        assert byml.load(changes[set_file]) == cset
+            reactions.append({"FilePath": "Work/Phive/ClothReaction/%s.phive__ClothReaction.gyml" % stem_r,
+                              "Name": mesh_alias.get(r["Name"], r["Name"])})
+        options = [dict(o, Name=mesh_alias.get(o["Name"], o["Name"])) for o in her_set["ClothAdvandecOption"]]
+        assert {m["Name"] for m in her_meshes} == {r["Name"] for r in reactions} == {o["Name"] for o in options}
+        assert not {r["Name"] for r in reactions} & ({r["Name"] for r in cset["ClothReaction"]} |
+                                                     {o["Name"] for o in cset["ClothAdvandecOption"]})
+        cset["ClothReaction"] = list(cset["ClothReaction"]) + reactions
+        cset["ClothAdvandecOption"] = list(cset["ClothAdvandecOption"]) + options
+        changes[CLOTH_SET % pack] = byml.dump(cset, byml.version_of(old))
+        assert byml.load(changes[CLOTH_SET % pack]) == cset
         out = nxpack.sarc_replace(data, changes)
         got = nxfmt.sarc_files(out)
         assert all(bytes(got[k]) == (changes[k] if k in changes else bytes(v)) for k, v in files.items()) and len(got) == len(files)
+        assert not any(a % 8 for _, a, _ in nxfmt.sarc_entries(out))
         build.write(mod, rel, nxpack.zs_compress_like(out, stock_raw), len(out), build.SIZES)
-        notes.append("%s: her cloth settings (%d meshes: %s; %d collidables)" % (
-            pack, len(reactions), ", ".join(r["Name"].split("_")[-1] for r in reactions), len(new_param["CollidableList"])))
+        for k in changes:
+            # files inside a pack have size table entries too; there is no rule for a parameter
+            # file's entry, so: the game's entry plus sixteen times what the file grew by and 4096
+            # (the game's entries grow by about 1000 per mesh; too large does no harm)
+            grew = len(changes[k]) - len(link_files[k]) if k in link_files else len(changes[k]) - len(files[k])
+            assert stock.get(k) and grew > 0, k
+            build.SIZES[k] = max(build.SIZES.get(k, 0), stock.get(k) + 16 * grew + 4096)
+            build.PACKED_FILES.add(k)
+        notes.append("%s: one set of cloth settings (%d + %d meshes: + %s; %d + %d collidables)" % (
+            pack, len(param["MeshList"]), len(her_meshes), ", ".join(m["Name"].split("_")[-1] for m in her_meshes),
+            len(param["CollidableList"]), len(new_param["CollidableList"]) - len(param["CollidableList"])))
+
+    # the code patch
+    p = cloth_hook([stored])
+    build.write_ips(mod, p)
+    notes.append("cloth hook: %d runs emulated; %d bytes of %d in %s's body" % (
+        check_cloth_hook(p, [stored]), p.cave_ptr - CLOTH_DEAD[0], CLOTH_DEAD[1] - CLOTH_DEAD[0], CLOTH_DEAD_NODE))
     return notes
+
+
+def sarc_add(data, added):
+    """A copy of SARC `data` with the files `added` ({name: bytes}, new names). The old
+    files keep their order and their bytes; the new ones follow. Without new files the
+    input comes back byte for byte (checked on every call)."""
+    def make(extra):
+        e = "<"
+        assert data[:4] == b"SARC" and data[6:8] == b"\xff\xfe"
+        data_off, = struct.unpack_from("<I", data, 0x0C)
+        count, mult = struct.unpack_from("<HI", data, 0x1A)
+        entries = nxfmt.sarc_entries(data)
+        assert len(entries) == count and len({n for n, _, _ in entries}) == count
+
+        def name_hash(n):
+            h = 0
+            for c in n.encode():
+                h = (h * mult + c) & 0xFFFFFFFF
+            return h
+        for i, (n, _, _) in enumerate(entries):
+            assert struct.unpack_from("<I", data, 0x20 + i * 16)[0] == name_hash(n), n
+        blobs = {n: data[a:b] for n, a, b in entries}
+        order = [n for n, a, _ in sorted(entries, key=lambda x: x[1])] + sorted(extra)
+        blobs.update(extra)
+        table = sorted(blobs, key=name_hash)
+        assert len({name_hash(n) for n in table}) == len(table)
+        assert [n for n in table if n not in extra] == [n for n, _, _ in entries]
+        names, name_at = bytearray(), {}
+        for n in table:
+            name_at[n] = len(names) // 4
+            names += n.encode() + b"\0"
+            names += b"\0" * (-len(names) % 4)
+        body, place = bytearray(), {}
+        for n in order:
+            body += b"\0" * (-len(body) % 8)
+            place[n] = (len(body), len(body) + len(blobs[n]))
+            body += blobs[n]
+        head = bytearray(data[:0x20])
+        struct.pack_into("<H", head, 0x1A, len(table))
+        for n in table:
+            head += struct.pack("<IIII", name_hash(n), 0x01000000 | name_at[n], *place[n])
+        head += b"SFNT" + struct.pack("<HH", 8, 0) + names
+        old_names_end = data_off - 0     # the old head's padding rule: the smallest alignment that gives its data start
+        sfnt = 0x20 + count * 16 + 8
+        last = max(sfnt + (struct.unpack_from("<I", data, 0x20 + i * 16 + 4)[0] & 0xFFFF) * 4 for i in range(count))
+        end = data.index(b"\0", last) + 1
+        end += -end % 4
+        # the files' data must start on a multiple of 8 in the archive, as every file does in
+        # the game's packs (a first build padded to 4: all of a pack's files off by 4, and the
+        # game hung while starting; snaildev, 2026-11-11)
+        align = next(a for a in (8, 16, 32, 64, 128, 256, 0x1000, 0x2000) if end + (-end % a) == old_names_end)
+        head += b"\0" * (-len(head) % align)
+        struct.pack_into("<I", head, 0x0C, len(head))
+        out = head + body
+        struct.pack_into("<I", out, 0x08, len(out))
+        assert not any(a % 8 for _, a, _ in nxfmt.sarc_entries(bytes(out)))
+        return bytes(out)
+    assert make({}) == nxpack.sarc_replace(data, {}), "the archive does not rebuild as it is"
+    return make(dict(added))
+
+
+CLOTH_HOOK = """
+        ldr x9, [x1]
+        adr x10, cd_dir
+    ch_dir:
+        ldrb w11, [x10], #1
+        cbz w11, ch_stem
+        ldrb w12, [x9], #1
+        cmp w11, w12
+        b.eq ch_dir
+    ch_pass:
+        hint #27
+        b #{resume:#x}
+    ch_stem:
+        adr x10, cd_stem
+    ch_name:
+        ldrb w11, [x10], #1
+        ldrb w12, [x9], #1
+        cmp w11, w12
+        b.ne ch_pass
+        cbnz w11, ch_name
+    ch_flag:
+        adrp x9, #{got_page:#x}
+        ldr x9, [x9, #{got_off:#x}]
+        ldr x9, [x9]
+        cbz x9, ch_pass
+        ldr x10, [x9, #0xe0]
+        cbz x10, ch_pass
+        ldr w11, [x9, #0xec]
+        cbz w11, ch_pass
+        movz w12, #{hlo:#x}
+        movk w12, #{hhi:#x}, lsl #16
+        udiv w14, w12, w11
+        msub w14, w14, w11, w12
+        mov w15, w14
+    ch_probe:
+        add x16, x10, w15, uxtw #3
+        ldr w17, [x16]
+        cmp w17, w12
+        b.eq ch_found
+        cbz w17, ch_pass
+        add w15, w15, #1
+        cmp w15, w11
+        csel w15, wzr, w15, hs
+        cmp w15, w14
+        b.ne ch_probe
+        b ch_pass
+    ch_found:
+        ldr w16, [x16, #4]
+        ldr w17, [x9, #0xd0]
+        cmp w16, w17
+        b.hs ch_pass
+        ldr x17, [x9, #0xd8]
+        mov w15, #0x28
+        umaddl x17, w16, w15, x17
+        ldr w16, [x17, #0x1c]
+        cmp w16, #{top}
+        b.hi ch_pass
+        adr x10, cd_bits
+        lsr w11, w16, #3
+        ldrb w11, [x10, x11]
+        and w12, w16, #7
+        lsr w11, w11, w12
+        tbz w11, #0, ch_pass
+        hint #27
+        sub sp, sp, #0xa0
+        stp x29, x30, [sp, #0x90]
+        ldr x9, [x1]
+        add x10, sp, #8
+        str x10, [sp]
+    ch_copy:
+        ldrb w12, [x9], #1
+        cmp w12, #0x2e
+        b.eq ch_ins
+        strb w12, [x10], #1
+        cbnz w12, ch_copy
+    ch_call:
+        mov x1, sp
+        bl ch_pass
+        ldp x29, x30, [sp, #0x90]
+        add sp, sp, #0xa0
+        retab
+    ch_ins:
+        mov w14, #0x435f
+        strh w14, [x10], #2
+        lsr w14, w16, #4
+        add w14, w14, #0x41
+        strb w14, [x10], #1
+        and w14, w16, #15
+        add w14, w14, #0x41
+        strb w14, [x10], #1
+    ch_rest:
+        strb w12, [x10], #1
+        cbz w12, ch_call
+        ldrb w12, [x9], #1
+        b ch_rest
+    cd_dir:
+        .byte {dir}
+    cd_stem:
+        .byte {stem}
+    cd_bits:
+        .byte {bits}
+"""
+
+
+def check_unused_node(img, node, region, sha1):
+    """The code we overwrite is the one-shot body of the node class we name, and nothing can
+    reach it: one pointer to it in the whole image (its class's vtable), no call, no address
+    formed, no branch into it from outside, and no graph file that names the class (the
+    game's graphs, every build folder's and every installed folder's)."""
+    import glob
+    import hashlib
+    import numpy as np
+    VT_NAME, VT_ONESHOT = 0x98, 0x138       # a node class's vtable: its name getter, its one-shot body
+    lo, hi = region
+    assert hashlib.sha1(img.data[lo - img.base:hi - img.base]).hexdigest() == sha1, \
+        "the unused routine is not the one this patch was written for"
+    q = np.frombuffer(img.data[:len(img.data) // 8 * 8], dtype="<u8")
+    getters = [x for s in img.strings(node) for x in img.xrefs(s) if img.u32(x + 8) == 0xD65F03C0]
+    tables = [img.base + int(i) * 8 - VT_NAME for x in getters for i in np.nonzero(q == x)[0]]
+    assert len(tables) == 1, tables
+    assert struct.unpack_from("<Q", img.data, tables[0] + VT_ONESHOT - img.base)[0] == lo
+    assert int((q == lo).sum()) == 1 and not img.calls_to(lo) and not img.xrefs(lo)
+    assert img.u32(lo) == img.PACIBSP and not any(img.u32(x) == img.PACIBSP for x in range(lo + 4, hi, 4))
+    w = img.words.astype(np.int64)
+    idx = np.nonzero((w & 0x7C000000) == 0x14000000)[0]                 # every b and bl
+    imm = w[idx] & 0x3FFFFFF
+    target = img.base + idx * 4 + np.where(imm & (1 << 25), imm - (1 << 26), imm) * 4
+    site = img.base + idx * 4
+    inside = (target >= lo) & (target < hi)
+    assert not (inside & ((site < lo) | (site >= hi))).any(), "a branch into the unused routine"
+    graphs = glob.glob(os.path.join(nxfmt.ROMFS, "Sequence", "*.ainb*"))
+    graphs += glob.glob(os.path.join(build.BUILD, "*", "romfs", "**", "*.ainb*"), recursive=True)
+    graphs += glob.glob(os.path.join(build.EDEN_LOAD, "*", "romfs", "**", "*.ainb*"), recursive=True)
+    assert len(graphs) > 100
+    for path in graphs:
+        data = nxfmt.read(path) if path.endswith(".zs") else open(path, "rb").read()
+        assert node.encode() not in data, "%s uses %s" % (path, node)
+
+
+def cloth_hook(stored_numbers):
+    """The code patch of the cloth test folder. The routine that names the files of the
+    physics types (CLOTH_PATH_ROUTINE) starts with a jump to the hook. The hook passes
+    everything through but the player's cloth file reference (CLOTH_DIR + CLOTH_STEM,
+    the whole path) while the stored character (build.CHARACTER_FLAG, read as the model
+    hook reads it) has its bit in the table: then it calls the routine with the reference
+    "Work/Phive/Cloth/Player_Child_C<two letters>.phcl", built on its own stack. Without
+    the flag (`Character models` switched off), with Link stored or with a character that
+    has no cloth of its own nothing changes."""
+    img = exepatch.Image()
+    check_unused_node(img, CLOTH_DEAD_NODE, CLOTH_DEAD, CLOTH_DEAD_SHA1)
+    region = exepatch.CAVE_REGION
+    exepatch.CAVE_REGION = CLOTH_DEAD
+    try:
+        p = exepatch.Patcher(image=img, cave=CLOTH_DEAD)    # the signature words go to its start
+    finally:
+        exepatch.CAVE_REGION = region
+
+    def place(name, addr, blob):
+        """As Patcher._place, but over the unused routine's code instead of zeros."""
+        assert CLOTH_DEAD[0] <= addr and addr + len(blob) <= CLOTH_DEAD[1], "the unused routine is full"
+        p.raw(addr, blob)
+        p.symbols[name] = addr
+        p.cave_ptr = addr + len(blob)
+        return addr
+    p._place = place
+    bits = bytearray(CLOTH_MAX // 8 + 1)
+    for n in stored_numbers:
+        assert 0 < n <= CLOTH_MAX
+        bits[n >> 3] |= 1 << (n & 7)
+    data = [CLOTH_DIR.encode() + b"\0", CLOTH_STEM.encode() + b"\0", bytes(bits)]     # after the code, in one piece with it
+    h = gamedata.murmur3_32(build.CHARACTER_FLAG)
+    got = build.GAMEDATA_MGR_GOT
+    r = CLOTH_PATH_ROUTINE
+    lines = [l.split(":", 1)[1].split() for l in img.dis(r, 12)]
+    assert img.u32(r) == img.PACIBSP and lines[1] == ["sub", "sp,", "sp,", "#0x50"]
+    # its second argument is a pointer to the path's address, read once, at the start
+    assert lines[6] == ["ldr", "x10,", "[x1]"] and lines[9] == ["mov", "x8,", "x1"]
+    # every address in a patch must be relative to the code (b, bl, adr, adrp): the game is
+    # not loaded at image.bin's addresses (a build with an absolute address: "cannot execute
+    # at unmapped address" while starting, 2026-11-11)
+    at = p.cave("cloth_hook", CLOTH_HOOK.format(top=CLOTH_MAX, resume=r + 4, got_page=got & ~0xFFF,
+                                                got_off=got & 0xFFF, hlo=h & 0xFFFF, hhi=h >> 16,
+                                                **{k: ", ".join("%d" % c for c in d) for k, d in zip(("dir", "stem", "bits"), data)}))
+    blob = dict(p.patches)[at]
+    p.cloth_code = len(blob) - sum(len(d) for d in data)        # the hook's instructions; the rest is its data
+    assert p.cloth_code % 4 == 0 and blob[p.cloth_code:] == b"".join(data)
+    p.raw(r, exepatch.assemble("b #%#x" % at, r), expect=struct.pack("<I", img.PACIBSP))
+    return p
+
+
+def check_cloth_hook(p, stored_numbers):
+    """Run the hook in an ARM64 emulator with a made-up flag store and a stub in place of
+    the routine's body that records what it is asked. -> number of runs."""
+    import unicorn
+    from unicorn import arm64_const as A
+    hook = p.symbols["cloth_hook"]
+    code = dict(p.patches)[hook][:p.cloth_code]
+    ins = list(p.img.cs.disasm(code, hook))
+    assert len(ins) * 4 == len(code), "the hook does not disassemble"
+    resume = CLOTH_PATH_ROUTINE + 4
+    assert len([i for i in ins if i.mnemonic == "b" and i.op_str == "#%#x" % resume]) == 1
+    assert not any(i.mnemonic in ("b", "bl") and i.op_str != "#%#x" % resume and
+                   not hook <= int(i.op_str.lstrip("#"), 16) < hook + len(code) for i in ins)
+    assert not any(i.mnemonic in ("br", "blr") for i in ins)
+    entry = list(p.img.cs.disasm(dict(p.patches)[CLOTH_PATH_ROUTINE], CLOTH_PATH_ROUTINE))
+    assert len(entry) == 1 and entry[0].mnemonic == "b" and entry[0].op_str == "#%#x" % hook
+    h = gamedata.murmur3_32(build.CHARACTER_FLAG)
+    got = build.GAMEDATA_MGR_GOT
+    DATA, STACK, RET = 0x20000000, 0x30000000, 0x40000000
+    CELL, MGR, MAP, REC, NAME, OUT, ARG = (DATA + o for o in (0, 0x100, 0x1000, 0x2000, 0x3000, 0x3100, 0x3200))
+    saved = [A.UC_ARM64_REG_X19 + i for i in range(10)] + [A.UC_ARM64_REG_X29]
+    runs = [0]
+
+    def run(path, value, mgr=True, flag=True, cap=8, crowd=False):
+        mu = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
+        for page in sorted({hook & ~0xFFF, (hook + len(code)) & ~0xFFF, CLOTH_PATH_ROUTINE & ~0xFFF, got & ~0xFFF, RET}):
+            mu.mem_map(page, 0x1000)
+        for addr, data in p.patches:
+            mu.mem_write(addr, data)
+        mu.mem_write(resume, struct.pack("<I", 0xD65F03C0))            # the routine's body: ret
+        # this emulator's processor has no pointer signing: pacibsp does nothing there and
+        # retab is unknown, so the hook's one retab runs as ret
+        retab = [i.address for i in ins if i.mnemonic == "retab"]
+        assert len(retab) == 1 and len([i for i in ins if i.mnemonic == "pacibsp"]) == 2
+        mu.mem_write(retab[0], struct.pack("<I", 0xD65F03C0))
+        mu.mem_write(got, struct.pack("<Q", CELL))
+        mu.mem_map(DATA, 0x10000)
+        mu.mem_map(STACK, 0x10000)
+        mu.mem_write(CELL, struct.pack("<Q", MGR if mgr else 0))
+        mu.mem_write(MGR + 0xe0, struct.pack("<Q", MAP))
+        mu.mem_write(MGR + 0xec, struct.pack("<I", cap))
+        mu.mem_write(MGR + 0xd0, struct.pack("<I", 5))
+        mu.mem_write(MGR + 0xd8, struct.pack("<Q", REC))
+        slot = h % cap
+        if crowd:           # another flag sits in our first place: ours is one further on
+            mu.mem_write(MAP + 8 * slot, struct.pack("<II", h ^ 0x10000, 1))
+            slot = (slot + 1) % cap
+        if flag:
+            mu.mem_write(MAP + 8 * slot, struct.pack("<II", h, 3))
+        mu.mem_write(REC + 3 * 0x28 + 0x1c, struct.pack("<I", value))
+        mu.mem_write(NAME, path.encode() + b"\0")
+        mu.mem_write(ARG, struct.pack("<Q", NAME))
+        asked = []
+
+        def on_body(uc, address, size, data):
+            x1 = uc.reg_read(A.UC_ARM64_REG_X1)
+            at, = struct.unpack("<Q", bytes(uc.mem_read(x1, 8)))
+            text = bytes(uc.mem_read(at, 0x100)).split(b"\0")[0].decode()
+            asked.append((uc.reg_read(A.UC_ARM64_REG_X0), uc.reg_read(A.UC_ARM64_REG_X2), x1, at, text,
+                          uc.reg_read(A.UC_ARM64_REG_SP)))
+        mu.hook_add(unicorn.UC_HOOK_CODE, on_body, begin=resume, end=resume)
+        sp = STACK + 0x8000
+        mu.reg_write(A.UC_ARM64_REG_SP, sp)
+        mu.reg_write(A.UC_ARM64_REG_X0, OUT)
+        mu.reg_write(A.UC_ARM64_REG_X1, ARG)
+        mu.reg_write(A.UC_ARM64_REG_X2, 1)
+        mu.reg_write(A.UC_ARM64_REG_X30, RET)
+        for k, r in enumerate(saved):
+            mu.reg_write(r, 0x1111000 + k)
+        mu.emu_start(CLOTH_PATH_ROUTINE, RET, count=4000)
+        assert mu.reg_read(A.UC_ARM64_REG_PC) == RET and mu.reg_read(A.UC_ARM64_REG_SP) == sp, path
+        assert [mu.reg_read(r) for r in saved] == [0x1111000 + k for k in range(len(saved))], path
+        assert bytes(mu.mem_read(NAME, len(path) + 1)) == path.encode() + b"\0"    # the game's string is not written to
+        assert len(asked) == 1 and asked[0][:2] == (OUT, 1), path
+        runs[0] += 1
+        _, _, x1, at, text, body_sp = asked[0]
+        return text, (x1, at) == (ARG, NAME), body_sp
+
+    path = CLOTH_DIR + CLOTH_STEM
+    player = CLOTH_STEM.split(".")[0]
+    for n in list(stored_numbers) + [1, 2, 3, 15, 16, 17, 99, CLOTH_MAX]:
+        for kw in ({}, {"cap": 64}, {"crowd": True}, {"cap": 1}):
+            text, same, _ = run(path, n, **kw)
+            if n in stored_numbers:
+                want = CLOTH_DIR + CLOTH_NAME % (player, cloth_letters(n)) + ".phcl"
+                assert text == want and not same, (n, text)
+                # ... which the game's routine turns into the file this build ships (emulated
+                # once by hand on the game's own code, README)
+                assert CLOTH_FILE % (CLOTH_NAME % (player, cloth_letters(n))) == want[len("Work/"):-len("phcl")] + "Nin_Ounce_NVN2.bphcl"
+            else:
+                assert text == path and same, (n, text)
+    for n in (0, CLOTH_MAX + 1, 0x100 + stored_numbers[0], 0xFFFFFFFF):   # Link, and numbers the table does not have
+        assert run(path, n) == (path, True, STACK + 0x8000)
+    for kw in ({"mgr": False}, {"flag": False}):
+        assert run(path, stored_numbers[0], **kw)[:2] == (path, True)
+    n = stored_numbers[0]
+    others = [path + "x", path[:-1], path + ".zs", CLOTH_DIR, CLOTH_DIR + "P", CLOTH_DIR + "Player_Child.hkt",
+              CLOTH_DIR + "Player_Adult.phcl", CLOTH_DIR + "PouchPlayer_Child.phcl", CLOTH_DIR + "Npc_Hylia_WU_Zelda_Child.phcl",
+              path.lower(), "Work/Phive/ClothParam/Player_Child.phive__ClothParam.gyml",
+              "Work/Phive/ControllerSetParam/Player_Child.phive__ControllerSetParam.gyml",
+              "Model/Player_Child.Player_Child.bfres", "", "W"]
+    for other in others:
+        assert run(other, n) == (other, True, STACK + 0x8000), other
+    return runs[0]
 
 
 def cloth_file_names(data):
@@ -1270,8 +1698,6 @@ def backdrop_scale_hook(p):
         bl bd_actor
         cbz x12, bs_out
         str s16, [x12, #%#x]
-        str s16, [x12, #%#x]
-        str s16, [x12, #%#x]
         ldr x13, [x12, #0x270]
         cbz x13, bs_out
         ldr x13, [x13, #8]
@@ -1320,7 +1746,7 @@ def backdrop_scale_hook(p):
         mov x12, xzr
     ba_out:
         ret
-    """ % (CAMERA_BLOCK_Z, ACTOR_SCALE, ACTOR_SCALE + 4, ACTOR_SCALE + 8, save, MODEL_SCALE, MODEL_SCALE,
+    """ % (CAMERA_BLOCK_Z, ACTOR_SCALE, save, MODEL_SCALE, MODEL_SCALE,
            MODEL_SCALE + 4, MODEL_SCALE + 8, MODEL_NEW, MODEL_NEW, MODEL_UPDATE, load, at + 4,
            BACKDROP_HANDLE + 0x18, BACKDROP_HANDLE + 0x10, ACTOR_STATE))
     # bd_actor (x10 the manager -> x12 the live backdrop actor or 0; changes x14, x15, x30):
@@ -1337,6 +1763,29 @@ def backdrop_scale_hook(p):
 # distance build's vh_move adds to the standing place is multiplied by the zoom factor of the
 # camera update before (backdrop_scale_hook leaves it in the backdrop actor's scale), so a
 # character that is out stays out while the camera pulls back and a giant leaves at his size.
+# snaildev after that: Biggoron's hand still hangs into the top of the picture once he is out.
+# Going from a giant to a small one the factor falls with the camera's glide, so the parked
+# giant's distance shrank with it while he stayed 42 m wide: he came back towards the picture
+# until he was deleted. The one that leaves (w1 = 0 in vh_move) now never moves back: his new
+# x is the larger of the scaled place and where he is (actor +0x31c). The factor is only kept
+# in the backdrop actor's x scale now (nothing reads that actor's scale but us), which frees
+# the two instructions this takes in the cave.
+ACTOR_POS = 0x31C
+# snaildev after that ("yup that works"): going from young Link to Biggoron, he slides in too fast
+# for the zoom-out and the camera goes through his foot. The new one's way in was 1.6 m times
+# the factor of the camera at that moment, which starts at the old character's: a giant started
+# 1.6 m from his place with the camera 4.5 m away. The new one's distance is now times the
+# larger of the camera's factor and the factor he will stand at (the stored character's row
+# of the zoom table, through the zoom hook's own lookup), so a giant starts 43 m out; a small
+# one after a giant still comes in with the camera's factor, as before.
+# The hook no longer fits the padding after .text: it is the one-shot body of a node class
+# that nothing uses (as the field swap, the voices and the cloth hook do with other classes;
+# check_unused_node is the test). The spare area and the cave get their ten instructions back.
+SLIDE_DEAD_NODE = "SeqOneShotSetMessageToLayout"
+SLIDE_DEAD = (0x83bd5380, 0x83bd54d4)
+SLIDE_DEAD_SHA1 = "445be3bcb18c514a96a0f0ae5563556076efc592"    # its bytes in game v1.1.1
+
+
 def slide_scale_hook(p):
     word = exepatch.assemble("fadd s17, s17, s16", 0)
     start = p.symbols["vh_move"]
@@ -1344,73 +1793,150 @@ def slide_scale_hook(p):
     at = data.find(word, start - addr)
     assert at % 4 == 0 and 0 < addr + at - start < 0x100 and data.count(word) == 1, "vh_move's add not found"
     site = addr + at
-    # in vh_move here: x0 the actor, x1 show / hide, x13 the pivot table (needed after), s16 the
-    # metres, s17 the standing x; x10, x12, x14, x15 and v18 are free, x30 is saved in its frame
-    # (seven instructions: the spare area has room for eight)
-    with p.extra():
-        p.cave("slide_scale", """
-            ldr x10, [sp, #0x18]
-            bl #{bd_actor:#x}
-            cbz x12, ss_add
-            ldr s18, [x12, #%#x]
-            fmul s16, s16, s18
-        ss_add:
-            fadd s17, s17, s16
-            b #%#x
-        """ % (ACTOR_SCALE, site + 4))
-    branch = exepatch.assemble("b #%#x" % p.symbols["slide_scale"], site)
+    # in vh_move here: x0 the actor, x1 show / hide (0 = the one that leaves), x10 the manager
+    # (both callers load it for x0 and vh_move leaves it), x13 the pivot table (needed after),
+    # s16 the metres, s17 the standing x; x9 (the page view patch reloads it from its frame
+    # when it is done), x11, x12, x14-x17 and v18-v31 are free, x30 is saved in vh_move's frame.
+    before = [ins.op_str for ins in p.img.cs.disasm(bytes(data[start - addr:at]), start)]
+    assert len(before) == (site - start) // 4 and not any(re.search(r"\b[xw]10\b", ops) for ops in before), \
+        "vh_move touches x10 before its add"
+    # the zoom hook's lookup (w12 the stored number, s17 the age's column as an integer ->
+    # s16 the factor; changes x12-x15): found by its first and its last two instructions
+    head = exepatch.assemble("sub w14, w12, #%d\n cmp w14, #%d" % (EXPERIMENT_BASE, len(EXPERIMENTS)), 0)
+    tail = exepatch.assemble("ucvtf s16, w14, #8\n ret", 0)
+    found = [(a + d.find(head), a + d.find(tail)) for a, d in p.patches if d.count(head) == 1 and d.count(tail) == 1]
+    assert len(found) == 1 and 0 < found[0][1] - found[0][0] < 0x60 and found[0][0] % 4 == 0, "the zoom hook's lookup not found"
+    check_unused_node(p.img, SLIDE_DEAD_NODE, SLIDE_DEAD, SLIDE_DEAD_SHA1)
+    text = """
+        bl #{bd_actor:#x}
+        cbz x12, ss_add
+        ldr s18, [x12, #{scale:#x}]
+        cbz w1, ss_mul
+        fmov s20, s16
+        fmov s21, s17
+        mov x9, x13
+        {mgr}
+        {h_child}
+        bl #{gd_bool:#x}
+        cmp w12, #0
+        cset w12, eq
+        fmov s17, w12
+        {h_char}
+        bl #{gd_int:#x}
+        cbz x12, ss_back
+        ldr w12, [x12, #0x1c]
+        bl #{factor:#x}
+        fmax s18, s18, s16
+    ss_back:
+        mov x13, x9
+        fmov s16, s20
+        fmov s17, s21
+    ss_mul:
+        fmul s16, s16, s18
+    ss_add:
+        fadd s17, s17, s16
+        cbnz w1, #{back:#x}
+        ldr s19, [x0, #{pos:#x}]
+        fmax s17, s17, s19
+        b #{back:#x}
+    """.format(bd_actor=p.symbols["bd_actor"], scale=ACTOR_SCALE, mgr=build._mgr_asm("ss_back"),
+               h_child=build._hash_asm("Sequence_IsChildhood"), h_char=build._hash_asm(build.CHARACTER_FLAG),
+               gd_bool=p.symbols["gd_bool"], gd_int=p.symbols["gd_int"], factor=found[0][0], back=site + 4, pos=ACTOR_POS)
+    # the first 16 bytes stay the class's own (as the other hooks in unused bodies leave a mark there)
+    at_dead = SLIDE_DEAD[0] + 16
+    code = exepatch.assemble(text, at_dead)
+    assert at_dead + len(code) <= SLIDE_DEAD[1], "the unused routine is full"
+    p.raw(at_dead, code)
+    p.symbols["slide_scale"] = at_dead
+    branch = exepatch.assemble("b #%#x" % at_dead, site)
     assert len(branch) == 4
     p.patches[i] = (addr, data[:at] + branch + data[at + 4:])
     p.symbols["slide_scale_site"] = site
 
 
 def check_slide_scale(p):
-    """The hook in an ARM64 emulator: the metres times the factor in the backdrop actor's
-    scale, added to the standing x; times nothing without a live backdrop; x0, x1 and x13
-    as they were. Returns the number of runs."""
+    """The hook in an ARM64 emulator: the metres times a factor, added to the standing x.
+    The factor: for the one that leaves (w1 = 0) the one in the backdrop actor's scale, and
+    he is never put left of where he is; for the new one the larger of that and the stored
+    character's in the zoom table (the zoom hook's own lookup runs; the two GameData
+    routines are stand-ins that spoil what the real ones may); 1 without a live backdrop;
+    x0, x1, x10 and x13 as they were. Returns the number of runs."""
     import unicorn
     from unicorn import arm64_const as A
     site = p.symbols["slide_scale_site"]
     uc = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
     uc.reg_write(A.UC_ARM64_REG_CPACR_EL1, uc.reg_read(A.UC_ARM64_REG_CPACR_EL1) | (3 << 20))
     mapped = set()
+
+    def need(addr, size):
+        for pg in range(addr & ~0xFFF, (addr + size + 0xFFF) & ~0xFFF, 0x1000):
+            if pg not in mapped:
+                uc.mem_map(pg, 0x1000)
+                mapped.add(pg)
+
     for addr, data in p.patches:
-        if addr >= 0x83c66000:
-            for pg in range(addr & ~0xFFF, (addr + len(data) + 0xFFF) & ~0xFFF, 0x1000):
-                if pg not in mapped:
-                    uc.mem_map(pg, 0x1000)
-                    mapped.add(pg)
-            uc.mem_write(addr, bytes(data))
+        need(addr, len(data))
+        uc.mem_write(addr, bytes(data))
     heap = 0x10000000
     uc.mem_map(heap, 0x10000)
-    mgr, link, actor, sp = heap + 0x1000, heap + 0x3000, heap + 0x5000, heap + 0xF000
+    mgr, link, actor, sp, mover, gd = heap + 0x1000, heap + 0x3000, heap + 0x5000, heap + 0xF000, heap + 0x7000, heap + 0x9000
+    need(build.GAMEDATA_MGR_GOT, 8)
+    uc.mem_write(build.GAMEDATA_MGR_GOT, struct.pack("<Q", gd + 0x800))
+    spoil = "\n".join("mov x%d, #0xbad" % r for r in (13, 15, 16, 17))
+    # stand-ins: the Bool's value at [x11 + 0x10], the Int's record (or 0) at [x11 + 0x18]
+    for name, load in (("gd_bool", "ldr w12, [x11, #0x10]"), ("gd_int", "ldr x12, [x11, #0x18]")):
+        uc.mem_write(p.symbols[name], exepatch.assemble(spoil + "\n" + load + "\n ret", p.symbols[name]))
+    table = [tuple(row) for row in zoom_factors()]
+    total = len(table) - len(EXPERIMENTS)
 
     def f32(x):
         return struct.unpack("<f", struct.pack("<f", x))[0]
 
-    def run(metres, stand, factor, hid=0x55, link_id=0x55, state=4):
-        uc.mem_write(sp + 0x18, struct.pack("<Q", mgr))
+    def run(metres, stand, factor, hid=0x55, link_id=0x55, state=4, show=2, now=-99.0, stored=0, child=1, known=True,
+            manager=True):
+        uc.mem_write(gd + 0x800, struct.pack("<Q", gd if manager else 0))
+        uc.mem_write(gd + 0x10, struct.pack("<IIQ", child, 0, gd + 0x100 if known else 0))
+        uc.mem_write(gd + 0x100 + 0x1C, struct.pack("<i", stored))
+        uc.mem_write(mover + ACTOR_POS, struct.pack("<f", now))
         uc.mem_write(mgr + BACKDROP_HANDLE + 0x10, struct.pack("<QI", link, hid))
         uc.mem_write(link + 0x40, struct.pack("<QI", actor, link_id))
         uc.mem_write(actor + ACTOR_STATE, struct.pack("<I", state))
         uc.mem_write(actor + ACTOR_SCALE, struct.pack("<f", factor))
-        regs = {A.UC_ARM64_REG_X0: 0xAAA0, A.UC_ARM64_REG_X1: 2, A.UC_ARM64_REG_X13: 0x8486c110, A.UC_ARM64_REG_SP: sp}
+        regs = {A.UC_ARM64_REG_X0: mover, A.UC_ARM64_REG_X1: show, A.UC_ARM64_REG_X10: mgr,
+                A.UC_ARM64_REG_X13: 0x8486c110, A.UC_ARM64_REG_SP: sp}
         for reg, v in regs.items():
             uc.reg_write(reg, v)
         uc.reg_write(A.UC_ARM64_REG_S16, struct.unpack("<I", struct.pack("<f", metres))[0])
         uc.reg_write(A.UC_ARM64_REG_S17, struct.unpack("<I", struct.pack("<f", stand))[0])
-        uc.emu_start(site, site + 4, count=100)
+        uc.emu_start(site, site + 4, count=300)
         assert uc.reg_read(A.UC_ARM64_REG_PC) == site + 4 and all(uc.reg_read(reg) == v for reg, v in regs.items())
         return struct.unpack("<f", struct.pack("<I", uc.reg_read(A.UC_ARM64_REG_S17) & 0xFFFFFFFF))[0]
 
+    def place(metres, stand, factor):
+        return f32(f32(stand) + f32(f32(metres) * f32(factor)))
+
+    giant = max(range(total), key=lambda n: table[n][0])
+    assert table[giant][0] > 20 and table[0] == (1.0, 1.0)
     runs = 0
     for stand in (0.0, 0.1):
         for metres in (2.0, -1.6, 0.0, 0.73):
             for factor in (1.0, 0.5, 1.65, 8.03, 26.78):
-                assert run(metres, stand, factor) == f32(f32(stand) + f32(f32(metres) * f32(factor))), (metres, factor)
+                for now in (-99.0, 0.0, 3.0, 53.56, 60.0):      # the one that leaves: the camera's factor, never back
+                    for stored in (0, giant):
+                        assert run(metres, stand, factor, show=0, now=now, stored=stored) == \
+                            max(place(metres, stand, factor), f32(now)), (metres, factor, now)
+                for show in (1, 2):                             # the new one: the larger factor, wherever he is now
+                    for stored in (0, 2, giant, giant + total, -1, 5 * total + 3):
+                        for child in (0, 1):
+                            aim = round(table[stored % total][0 if child else 1] * 256) / 256
+                            assert run(metres, stand, factor, show=show, now=60.0, stored=stored, child=child) == \
+                                place(metres, stand, max(f32(factor), aim)), (metres, factor, stored, child)
+                    for kw in (dict(known=False), dict(manager=False)):     # no stored number: the camera's factor
+                        assert run(metres, stand, factor, show=show, now=60.0, stored=giant, **kw) == place(metres, stand, factor), kw
                 for kw in (dict(hid=0xFFFFFFFF), dict(link_id=0x56), dict(state=9)):
-                    assert run(metres, stand, factor, **kw) == f32(f32(stand) + f32(metres)), kw
-                runs += 4
+                    assert run(metres, stand, factor, stored=giant, **kw) == f32(f32(stand) + f32(metres)), kw
+                    assert run(metres, stand, factor, show=0, now=9.0, **kw) == 9.0, kw
+                runs += 10 + 24 + 4 + 6
     return runs
 
 
@@ -1502,6 +2028,9 @@ def check_backdrop_scale(p):
     def five(v):
         return (7.0, v, v, v, 9.0)
 
+    def act(v):                     # the actor: the factor in x only
+        return (7.0, v, 1.0, 1.0, 9.0)
+
     asked, updated = [(getter, part)], [(getter, part), (MODEL_UPDATE, model)]
     runs = 0
     for z in (4.5, 3.5):
@@ -1509,20 +2038,20 @@ def check_backdrop_scale(p):
             v = f32(f32(f32(z) * f32(f)) / f32(z))
             assert abs(v - f) < 1e-5, (z, f)
             new = v != 1.0
-            assert run(0, z, f32(z) * f32(f)) == (five(v), five(v), 0x41 if new else 0x40, updated if new else asked), (z, f)
-            assert run(0, z, f32(z) * f32(f), model_scale=v) == (five(v), five(v), 0x40, asked)       # nothing new
-            assert run(3, z, f32(z) * f32(f)) == (five(1.0), five(1.0), 0x40, asked)                # another view: 1, as it was
-            assert run(3, z, f32(z) * f32(f), model_scale=v) == (five(1.0), five(1.0), 0x41 if new else 0x40,
+            assert run(0, z, f32(z) * f32(f)) == (act(v), five(v), 0x41 if new else 0x40, updated if new else asked), (z, f)
+            assert run(0, z, f32(z) * f32(f), model_scale=v) == (act(v), five(v), 0x40, asked)       # nothing new
+            assert run(3, z, f32(z) * f32(f)) == (act(1.0), five(1.0), 0x40, asked)                # another view: 1, as it was
+            assert run(3, z, f32(z) * f32(f), model_scale=v) == (act(1.0), five(1.0), 0x41 if new else 0x40,
                                                                  updated if new else asked)        # ... back to 1
             runs += 4
     for kw in (dict(hid=0xFFFFFFFF), dict(link_at=0), dict(link_id=0x56), dict(actor_at=0), dict(state=7), dict(state=11)):
-        assert run(0, 4.5, 36.0, **kw) == (five(1.0), five(1.0), 0x40, []), kw
+        assert run(0, 4.5, 36.0, **kw) == (act(1.0), five(1.0), 0x40, []), kw
         runs += 1
     for kw, made in ((dict(parts_at=0), []), (dict(part_at=0), []), (dict(model_at=0), asked)):      # no part, no model
-        assert run(0, 4.5, 36.0, **kw) == (five(8.0), five(1.0), 0x40, made), kw
+        assert run(0, 4.5, 36.0, **kw) == (act(8.0), five(1.0), 0x40, made), kw
         runs += 1
-    assert run(0, 4.5, 36.0, state=6) == (five(8.0), five(8.0), 0x41, updated)                      # asleep is alive
-    assert run(0, 0.0, 36.0) == (five(1.0), five(1.0), 0x40, asked)                                 # no camera yet: 1
+    assert run(0, 4.5, 36.0, state=6) == (act(8.0), five(8.0), 0x41, updated)                      # asleep is alive
+    assert run(0, 0.0, 36.0) == (act(1.0), five(1.0), 0x40, asked)                                 # no camera yet: 1
     return runs + 2
 
 

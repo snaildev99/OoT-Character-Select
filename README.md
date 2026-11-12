@@ -4,7 +4,7 @@ A mod for *The Legend of Zelda: Ocarina of Time* on Switch 2 (game version 1.1.1
 
 Not affiliated with or endorsed by Nintendo. No game files are included; you need your own copy of the game. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 
-**Status:** first test version (v0.1.0). Back up your save before trying it.
+**Status:** early test version (v0.1.1). Back up your save before trying it.
 
 ## What it does
 
@@ -14,13 +14,23 @@ Not affiliated with or endorsed by Nintendo. No game files are included; you nee
 - **You play as the pick.** When the menu closes, the character you picked replaces Link in the field, at the same place, facing the same way, with the camera where it was. Link's animations drive every character at that character's own proportions.
 - **The pick is saved** with the save file.
 
+What the characters can do in this version:
+
+- **Every character** is a model swap on Link's animations, with basic facial animation and legs that follow slopes and ledges.
+- **Saria and young Zelda** speak with their own voices.
+- **Young Zelda's dress** has experimental cloth physics.
+- **Only a handful of the 99 have been tested in play.** Expect visual faults on most of the others.
+
 ## Install
 
-The mod is five folders for the emulator's mods folder.
+The mod is eight folders for the emulator's mods folder.
 
 1. Close the game.
 2. In the emulator's game list, right-click the game and choose "Open Mod Data Location". This opens `...\load\0400486024DEC000`.
-3. Copy the five folders into it with their names unchanged (the emulator layers mod folders in name order, and the order matters):
+3. Copy the eight folders into it with their names unchanged (the emulator layers mod folders in name order, and the order matters):
+   - `Character (voice test)`
+   - `Character cloth (test)`
+   - `Character dress (test)`
    - `Character field swap`
    - `Character models`
    - `Characters page`
@@ -28,23 +38,25 @@ The mod is five folders for the emulator's mods folder.
    - `NPC characters`
 4. Start the game. Each folder can be switched off under the game's properties, Add-Ons.
 
-To remove the mod, delete the five folders.
+To remove the mod, delete the eight folders.
 
 Good to know:
 
 - **Game version 1.1.1 only.** The code patches are tied to that build (build id `E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348`). On another version, switch the folders off.
 - **Button prompt mods conflict.** This mod replaces the same layout texture file, so only one of the two can be on.
 - **`Character field swap` can be off by itself.** The picked character then shows in the field after save, return to title and Continue.
+- **The three folders with "test" in the name can be off too.** They hold the voices and young Zelda's cloth; `Character dress (test)` is used when the cloth folder is off.
 - **Known gaps:** most NPCs are listed under their file names, and swapping while riding is not handled.
 
 ## Is it safe to install?
 
-A mod package from this project holds data files only: changed game files (`.zs`, `.ainb`) and four small patches to the game's own code (`.ips`), which run inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If a package claiming to be this mod contains anything else, do not use it.
+A mod package from this project holds data files only: changed or added game files (`.zs`, `.ainb`, `.bwav`, `.bphcl`) and six small patches to the game's own code (`.ips`), which run inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If a package claiming to be this mod contains anything else, do not use it.
 
 Packages made by the author, and the SHA-256 sum of each zip:
 
 | Package | SHA-256 |
 | --- | --- |
+| `OoT-Character-Select-v0.1.1.zip` | `f510576f1d7175320ab50c390a2a337b7b530c409b714d8ec08a03a0ff8da9af` |
 | `OoT-Character-Select-v0.1.0.zip` | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
 
 Check a zip you were sent with `certutil -hashfile <zip> SHA256` (Windows) before unpacking it.
@@ -63,7 +75,7 @@ set OOT_IMAGE=C:\path\to\image.bin
 venv\Scripts\python mods\build.py
 ```
 
-The mod folders are written to `build\`. `--install` also copies them into `%APPDATA%\eden\load\0400486024DEC000`.
+The mod folders are written to `build\`. `--install` also copies them into `%APPDATA%\eden\load\0400486024DEC000`. The voices folder is built apart by `mods\voices.py`, which needs a voice conversion setup of its own (`docs/NOTES.md`, voices section).
 
 Two inputs are not in this repository, and the full build currently expects both:
 

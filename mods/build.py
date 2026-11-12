@@ -95,11 +95,14 @@ def write(mod, rel, data, decompressed_size, sizes=None, size=None):
     _write_raw(mod, rel, data, "(%d bytes, stock table %s)" % (decompressed_size, limit))
 
 
+PACKED_FILES = set()    # files that live inside a pack and have a size table entry of their own (the caller adds their names)
+
+
 def write_rstb(mod, sizes):
     raw = open(os.path.join(ROMFS, rstb.PATH), "rb").read()
     t = rstb.Rstb(nxfmt.unzs(raw))
     for path, size in sorted(sizes.items()):
-        is_new = not any(os.path.exists(os.path.join(ROMFS, path + z)) for z in ("", ".zs"))
+        is_new = path not in PACKED_FILES and not any(os.path.exists(os.path.join(ROMFS, path + z)) for z in ("", ".zs"))
         if is_new:  # a stock entry under the same crc32 would belong to another file
             assert t.get(path) is None, "size table crc32 collision for new file " + path
         old, new = t.ensure(path, size)

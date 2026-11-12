@@ -49,7 +49,7 @@ Packages made by the author, and the SHA-256 sum of each zip:
 | Package | SHA-256 |
 | --- | --- |
 | `OoT-Character-Select-v0.1.1-lite.zip` | `4188673d5edd9b8afb6cac2ff75e988095e7eb9966a591d76265ba6b00e3833d` |
-| `OoT-Character-Select-v0.1.1.zip` (all 99 characters as eight folders; not handed out) | `a2ef2f82f199df19832d69c875c02c359f31e4afbc224513f09e681fe264aeaf` |
+| `OoT-Character-Select-v0.1.1.zip` (all 99 characters, one folder) | `15d294aab0101ba67e4334628effc70754745bb789bfb0df71a49528f8bfaaaa` |
 | `OoT-Character-Select-v0.1.0.zip` | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
 
 Check a zip you were sent with `certutil -hashfile <zip> SHA256` (Windows) before unpacking it.

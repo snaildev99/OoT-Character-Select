@@ -3,8 +3,9 @@ personal, in a folder of its own (the git repository that is pushed).
 
     venv\\Scripts\\python.exe tools\\publish.py <target folder>
 
-Copied: mods\\*.py, tools\\*.py, README.md as docs\\NOTES.md, and publish\\* (the public
-README, the licence) to the top. Not copied: builds, virtual environments, assets
+Copied: mods\\*.py, tools\\*.py, README.md as docs\\NOTES.md, publish\\* (the public
+README, the licence) to the top and publish\\images\\* (the readme's screenshots, made
+by re-encoding, so they carry no metadata) to docs\\images. Not copied: builds, virtual environments, assets
 (third-party models), research dumps of game data, the working notes for the sessions,
 launchers. In every text the author's first name becomes the public handle and paths
 under the Windows profile lose the user name; the result is searched for what must not
@@ -44,9 +45,16 @@ def main():
             if name.endswith(".py"):
                 files[folder + "/" + name] = os.path.join(ROOT, folder, name)
     files["docs/NOTES.md"] = os.path.join(ROOT, "README.md")
+    pictures = {}
     for name in sorted(os.listdir(os.path.join(ROOT, "publish"))):
-        files[name] = os.path.join(ROOT, "publish", name)
-    out = {rel: scrub(open(src, encoding="utf-8").read()) for rel, src in files.items()}
+        path = os.path.join(ROOT, "publish", name)
+        if name == "images":                # the readme's screenshots: copied as they are
+            for picture in sorted(os.listdir(path)):
+                assert picture.lower().endswith((".jpg", ".png")), picture
+                pictures["docs/images/" + picture] = os.path.join(path, picture)
+        else:
+            files[name] = path
+    out ={rel: scrub(open(src, encoding="utf-8").read()) for rel, src in files.items()}
     out["requirements.txt"] = "\n".join(REQUIREMENTS) + "\n"
     out[".gitignore"] = "\n".join(GITIGNORE) + "\n"
     for rel, text in out.items():
@@ -57,7 +65,11 @@ def main():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w", encoding="utf-8", newline="") as f:
             f.write(text)
-    print("%d files -> %s" % (len(out), target))
+    for rel, src in pictures.items():
+        path = os.path.join(target, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        shutil.copyfile(src, path)
+    print("%d files, %d pictures -> %s" % (len(out), len(pictures), target))
 
 
 if __name__ == "__main__":

@@ -1,64 +1,108 @@
 # OoT Character Select
 
-A mod for *The Legend of Zelda: Ocarina of Time* on Switch 2 (game version 1.1.1) that adds a **Characters** page to the − menu. Pick a character, Link or one of the game's own NPCs, and play as them. The lite release has 21 characters; the source builds all 99.
+A full character select for *The Legend of Zelda: Ocarina of Time* on Switch 2: a new **Characters** page in the − menu where you pick who you play as, see them live, and swap in the field without a reload.
+
+**[Watch the demo video](https://vimeo.com/1246160686)** (2:45) · **[Download the latest release](https://github.com/snaildev99/OoT-Character-Select/releases/latest)**
+
+[![Screenshot of the mod; opens the demo video](docs/images/screenshot-1.jpg)](https://vimeo.com/1246160686)
 
 Not affiliated with or endorsed by Nintendo. No game files are included; you need your own copy of the game. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 
-**Status:** early test version (v0.1.1 lite). Back up your save before trying it.
-
-## What it does
-
-- **A fourth tab in the − menu.** Characters sits left of Key Items; L / ZL from Key Items opens it, and the header shows four tabs.
-- **A character picker.** Pages of 18 slots with a portrait for each character, in the look of the game's equipment page. D-pad or left stick moves, ZL / ZR turn pages, A picks.
-- **A live preview.** The picked character slides in on the right of the page, with the view zoomed to fit tall and short characters.
-- **You play as the pick.** When the menu closes, the character you picked replaces Link in the field, at the same place, facing the same way, with the camera where it was. Link's animations drive every character at that character's own proportions.
-- **The pick is saved** with the save file.
-
-What the characters can do in this version:
-
-- **Every character** is a model swap on Link's animations, with basic facial animation and legs that follow slopes and ledges.
-- **Saria and young Zelda** speak with their own voices.
-- **Young Zelda's dress** has experimental cloth physics.
-- **Only some have been tested in play.** Expect visual faults.
-- **The lite release has 21 characters:** Link, Saria, Mido, young and adult Zelda, Sheik, Impa, Ganondorf, young and adult Malon, young and adult Ruto, Rauru, King Zora, Nabooru, Darunia, Medigoron, Biggoron and three townspeople. The other 78 are in the source (`mods\build.py --full`) and come back as they are tested.
+**Status:** early test version (v0.1.1). Back up your save before trying it.
 
 ## Install
 
-The mod is one folder for the emulator's mods folder. The full version with all 99 characters is `v0.1.1-repack`, one zip of 361 MB.
+1. Download one of the two zips (pick one):
+   - **[v0.1.1-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.1-repack/OoT-Character-Select-v0.1.1-lite.zip)**: 21 characters, 171 MB.
+   - **[v0.1.1-repack](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.1-repack/OoT-Character-Select-v0.1.1-repack.zip)**: all 99 characters, 361 MB.
+2. In your emulator's game list, right-click the game and choose "Open Mod Data Location".
+3. Copy the folder `OoT Character Select` from the zip's `mods` folder into it, and start the game.
 
-1. Close the game.
-2. In the emulator's game list, right-click the game and choose "Open Mod Data Location". This opens `...\load\0400486024DEC000`.
-3. Copy the folder `OoT Character Select` from the zip's `mods` folder into it.
-4. Start the game. The mod can be switched off under the game's properties, Add-Ons.
+It is one mod folder. To remove the mod, delete it. To switch it off without deleting it, use the game's properties, Add-Ons.
 
-To remove the mod, delete the folder.
+What you need:
 
-Good to know:
+- **The game's 1.1.1 update**, the current one. Some emulators list the same update as 2.0.0 or v131072; that is fine, it is the same game data. The mod's code patch only applies to this update, so on any other it simply does nothing.
+- **A Switch 2 emulator that loads mod folders** (romfs files and IPS patches). Made and tested on Lichii and Fritchii.
+- **The PC recompilations (Hookshot, NX2Navi) are not supported yet.** The mod patches the game's original code, which those builds do not run, so it has not been tried there. A port is not ruled out.
 
-- **Game version 1.1.1 only.** The code patches are tied to that build (build id `E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348`). On another version, switch the mod off.
-- **Button prompt mods conflict.** This mod replaces the same layout texture file, so only one of the two can be on.
-- **Known gaps:** some NPCs are listed under their file names, and swapping while riding is not handled.
-- **Known issue:** browsing the picker for a long time could freeze the game in earlier builds. This version makes that much less likely, but the cause is not fully found yet, so save before a long browse.
+Did it run for you, or not? Please [open an issue](https://github.com/snaildev99/OoT-Character-Select/issues) with your emulator, its version and which zip you used. For how a character looks or moves, check the known issues below first.
+
+## What this mod is about
+
+Think of it as a character overhaul for the game's menus: a proper character select, built into the − menu in the game's own style, with a live preview and an instant swap in the field.
+
+It is not here to compete with other playable character mods. The roster of NPCs that ships with it is a proof of concept for the picker; the long-term idea is a home for all of them.
+
+Planned:
+
+- **Support for other mods.** Characters from other people's mods showing up in the picker beside the stock ones, with credit to their authors.
+- **Equipment.** Trying out modded equipment from the same menu as you play.
+- **More polish on the stock characters:** names, voices and fixes as they are tested.
+
+## Features
+
+- **A fourth menu tab.** Open the − menu, and the header shows four tabs, with **Characters** on the left.
+- **A character picker.** Pages of 18 slots with a portrait for each character, in the style of the equipment page. D-pad or left stick to move, ZL / ZR turn pages, A to select. The right stick rotates the character like in the equipment menu.
+- **A live preview.** The character you pick slides in beside the grid, and the view zooms to fit characters of any size.
+- **In-game swap.** Close the menu and you are that character, in the same spot, facing the same way. There is no reload and no trip to the title screen, only a brief fade-out after closing the menu.
+- **Your pick is saved** with the save file.
+
+## How playable the characters are
+
+- **Every character** is a model swap on Link's animations, at the character's own proportions, with basic facial animation and legs that follow slopes and ledges.
+- **Saria** is probably the only one that feels naturally playable right now: she moves well and speaks with her own voice.
+- **Mido**, and the other Kokiri in the full version, play smoothly if you don't mind Link's voice.
+- **Young Zelda** has her own voice and experimental cloth physics on her dress, but her legs still look wrong.
+- **Everyone else:** expect visual faults. Only some of the characters have been tested in play.
+- **The lite roster:** Link, Saria, Mido, young and adult Zelda, Sheik, Impa, Ganondorf, young and adult Malon, young and adult Ruto, Rauru, King Zora, Nabooru, Darunia, Medigoron, Biggoron and three townspeople.
+
+## Good to know
+
+- **Button prompt mods conflict.** They replace the same texture file, so use either one of those or this mod.
+- **Names.** Most of the generic NPCs are still listed under their file names.
+- **Riding.** Swapping while riding is not handled yet.
+- **Known issue:** browsing the picker for a very long time could freeze the game in earlier builds. This version makes that much less likely, but the cause is not fully found yet, so save before a long browse.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Screenshot](docs/images/screenshot-1.jpg) | ![Screenshot](docs/images/screenshot-2.jpg) |
+| ![Saria](docs/images/saria-1.jpg) | ![Saria](docs/images/saria-2.jpg) |
+| ![The picker, page 2](docs/images/picker-page-2.jpg) | ![The picker, page 3](docs/images/picker-page-3.jpg) |
+| ![The picker, page 4](docs/images/picker-page-4.jpg) | ![The picker, page 5](docs/images/picker-page-5.jpg) |
+| ![The picker, page 6](docs/images/picker-page-6.jpg) | |
 
 ## Is it safe to install?
 
 A mod package from this project holds data files only: changed or added game files (`.zs`, `.ainb`, `.bwav`, `.bphcl`) and one small patch file for the game's own code (`.ips`), which runs inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If a package claiming to be this mod contains anything else, do not use it.
 
-Packages made by the author, and the SHA-256 sum of each zip:
+The packages are the files on this repository's [releases page](https://github.com/snaildev99/OoT-Character-Select/releases). The SHA-256 sum of each zip:
 
 | Package | SHA-256 |
 | --- | --- |
 | `OoT-Character-Select-v0.1.1-lite.zip` | `4188673d5edd9b8afb6cac2ff75e988095e7eb9966a591d76265ba6b00e3833d` |
 | `OoT-Character-Select-v0.1.1-repack.zip` (all 99 characters) | `b19392577667d4b5565ad1c2e054069ee4a925f654087140b72bb439114c8c14` |
-| `OoT-Character-Select-v0.1.0.zip` | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
+| `OoT-Character-Select-v0.1.0.zip` (first test version, not on the releases page) | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
 
-Check a zip you were sent with `certutil -hashfile <zip> SHA256` (Windows) before unpacking it.
+Check a zip you got from anywhere else with `certutil -hashfile <zip> SHA256` (Windows) before using it.
 
-Each package comes with `SHA256SUMS.txt` (the sum of every file) and `patch-listings` (every code patch as readable assembly, written by the same build that made the patch). The build is deterministic: the same sources and the same game files give the same bytes, so a package can be rebuilt from this repository and compared. `tools/package.py` makes the package and refuses any file type other than the data files above.
+Each package comes with `SHA256SUMS.txt` (the sum of every file) and `patch-listings` (the code patch as readable assembly, written by the same build that made the patch). The build is deterministic: the same sources and the same game files give the same bytes, so a package can be rebuilt from this repository and compared. `tools/package.py` makes the package and refuses any file type other than the data files above.
+
+## Credits and AI use
+
+- **Human work.** The idea, the design of the page and the picker, every decision between versions, and all testing in the game are the author's. Each feature was played and approved in game before it went in.
+- **Code.** The build scripts, tools and code patches were written with heavy help from Claude (Anthropic), under the author's direction, and checked in game by the author. All of it is in this repository.
+- **Voices.** Saria's and young Zelda's voices were made with a locally run voice conversion model, [Seed-VC](https://github.com/Plachtaa/seed-vc) by Plachtaa, with its published pretrained weights (not trained or fine-tuned by the author). The input is Link's own voice clips from the game; the reference voice for each character is that character's own voice clips from the game. No other voice material was used.
+- **Visuals.** No generated images. The portraits are captures of the game's own models, taken in game and cut out by a script.
+- **This page.** The text was drafted with Claude and edited by the author.
+
+Mod and tools by snaildev99. *The Legend of Zelda: Ocarina of Time* and its characters belong to Nintendo.
 
 ## Build from source
 
-You need Windows, Python 3.11, and from your own copy of the game (version 1.1.1): the extracted romfs and the executable image as dumped from memory at base `0x80000000`.
+You need Windows, Python 3.11, and from your own copy of the game (the 1.1.1 update, build id `E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348`): the extracted romfs and the executable image as dumped from memory at base `0x80000000`.
 
 ```
 python -m venv venv
@@ -95,7 +139,4 @@ Everything is built by Python scripts from the untouched game files; nothing is 
 - `mods/build.py`: the build (`mods/ui_sandbox.py`, `mods/npc_characters.py` and `mods/field_swap.py` are used by it as libraries and can each build a test variant).
 - `tools/`: file format readers and writers, the patcher, the packager, and read-only debug helpers.
 - `docs/NOTES.md`: the working notes.
-
-## Credits
-
-Mod and tools by snaildev99. *The Legend of Zelda: Ocarina of Time* and its characters belong to Nintendo.
+- `docs/images/`: the screenshots on this page.

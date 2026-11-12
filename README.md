@@ -24,7 +24,7 @@ What the characters can do in this version:
 
 ## Install
 
-The mod is one folder for the emulator's mods folder. The full version (all 99 characters) is a download in two parts: unpack both into the same place first; they hold the same folder, and each part adds files to it.
+The mod is one folder for the emulator's mods folder. The full version (all 99 characters, v0.1.1-repack) is a download in two parts: unpack both into the same place first; they hold the same folder, and each part adds files to it.
 
 1. Close the game.
 2. In the emulator's game list, right-click the game and choose "Open Mod Data Location". This opens `...\load\0400486024DEC000`.
@@ -49,8 +49,8 @@ Packages made by the author, and the SHA-256 sum of each zip:
 | Package | SHA-256 |
 | --- | --- |
 | `OoT-Character-Select-v0.1.1-lite.zip` | `4188673d5edd9b8afb6cac2ff75e988095e7eb9966a591d76265ba6b00e3833d` |
-| `OoT-Character-Select-v0.1.1-part1.zip` (all 99 characters, in two parts) | `31040add216f23b28f0b712f9c9b67dcffea37f560773532acccd93383e5db3a` |
-| `OoT-Character-Select-v0.1.1-part2.zip` | `080bad24c925650824849fea8cce5fb1c81a5dafe03ec736f5005bd61873c05e` |
+| `OoT-Character-Select-v0.1.1-repack-part1.zip` (all 99 characters, in two parts) | `b969184a635daae676361aee50678730e5eaf4bff4252c27742ddf6f3bfd8084` |
+| `OoT-Character-Select-v0.1.1-repack-part2.zip` | `a9b5c92416357b927cfba24a22afa32e828f3fefcfdca1bc84c7bed749f94a10` |
 | `OoT-Character-Select-v0.1.1.zip` (the two parts in one) | `15d294aab0101ba67e4334628effc70754745bb789bfb0df71a49528f8bfaaaa` |
 | `OoT-Character-Select-v0.1.0.zip` | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
 

@@ -291,16 +291,27 @@ def main():
         max_mb = sys.argv[sys.argv.index("--max-mb") + 1]
         args.remove(max_mb)
         max_mb = float(max_mb)
+    source = None
+    if "--from-zip" in sys.argv:
+        i = sys.argv.index("--from-zip") + 1
+        if i < len(sys.argv) and not sys.argv[i].startswith("--"):
+            source = sys.argv[i]
+            args.remove(source)
     assert len(args) == 1, __doc__
     version = args[0]
+    source = source or version
     if "--from-zip" in sys.argv:
         # cut a package this script made earlier into parts (same files, same texts)
         assert max_mb is not None
-        src = os.path.join(DIST, "%s-%s.zip" % (name, version))
-        top = "%s-%s" % (name, version)
-        with zipfile.ZipFile(src) as z:
-            files = [(n[len(top) + 1:], z.read(n)) for n in z.namelist()]
+        # `--from-zip <version>`: that package under this run's version name (a site that
+        # keeps old uploads refuses a file name twice); without one, this run's version
+        src_top, top = "%s-%s" % (name, source), "%s-%s" % (name, version)
+        with zipfile.ZipFile(os.path.join(DIST, src_top + ".zip")) as z:
+            files = [(n[len(src_top) + 1:], z.read(n)) for n in z.namelist()]
         text = dict(files)["INSTALL.txt"].decode("utf-8").replace("\r\n", "\n")
+        first = "%s %s\n" % (name, source)
+        assert text.startswith(first)
+        text = "%s %s\n" % (name, version) + text[len(first):]
         files = [(n, d) for n, d in files if n not in ("INSTALL.txt", "SHA256SUMS.txt")]
         assert all(n.startswith(("mods/%s/" % ONE, "patch-listings/")) for n, _d in files)
         write_parts(top, files, text, max_mb)

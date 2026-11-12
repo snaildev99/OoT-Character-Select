@@ -302,7 +302,6 @@ def main():
     source = source or version
     if "--from-zip" in sys.argv:
         # cut a package this script made earlier into parts (same files, same texts)
-        assert max_mb is not None
         # `--from-zip <version>`: that package under this run's version name (a site that
         # keeps old uploads refuses a file name twice); without one, this run's version
         src_top, top = "%s-%s" % (name, source), "%s-%s" % (name, version)
@@ -314,7 +313,11 @@ def main():
         text = "%s %s\n" % (name, version) + text[len(first):]
         files = [(n, d) for n, d in files if n not in ("INSTALL.txt", "SHA256SUMS.txt")]
         assert all(n.startswith(("mods/%s/" % ONE, "patch-listings/")) for n, _d in files)
-        write_parts(top, files, text, max_mb)
+        if max_mb is None:      # the whole package under the new name
+            files.append(("INSTALL.txt", text.replace("\n", "\r\n").encode("utf-8")))
+            write_zip(os.path.join(DIST, top + ".zip"), top, files)
+        else:
+            write_parts(top, files, text, max_mb)
         return
     # what was played: the folders as the working install has them, or the one folder
     # (--install of an earlier run); the one folder is then compared after the merge

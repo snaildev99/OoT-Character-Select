@@ -9,7 +9,8 @@ were eight): the working folders merged the way the emulator sees them together 
 --install puts that one folder into the emulator's mods folder in place of the working
 folders, for a look in game; a package made after that is checked against it.
 --max-mb cuts the package into parts no larger than that (a download site's limit); the
-parts unpack into the same folder. --full: the text says 99 characters (a --full build).
+parts unpack into the same folder; with --from-zip the parts are cut from the package
+of that version already in dist (the same files and texts). --full: the text says 99 characters (a --full build).
 
 What goes in is build\\<folder> for the folders install-mods.bat installs, plus the
 voices folder of mods\\voices.py (build-voice\\mod; it is installed after the others). Unless
@@ -292,6 +293,18 @@ def main():
         max_mb = float(max_mb)
     assert len(args) == 1, __doc__
     version = args[0]
+    if "--from-zip" in sys.argv:
+        # cut a package this script made earlier into parts (same files, same texts)
+        assert max_mb is not None
+        src = os.path.join(DIST, "%s-%s.zip" % (name, version))
+        top = "%s-%s" % (name, version)
+        with zipfile.ZipFile(src) as z:
+            files = [(n[len(top) + 1:], z.read(n)) for n in z.namelist()]
+        text = dict(files)["INSTALL.txt"].decode("utf-8").replace("\r\n", "\n")
+        files = [(n, d) for n, d in files if n not in ("INSTALL.txt", "SHA256SUMS.txt")]
+        assert all(n.startswith(("mods/%s/" % ONE, "patch-listings/")) for n, _d in files)
+        write_parts(top, files, text, max_mb)
+        return
     # what was played: the folders as the working install has them, or the one folder
     # (--install of an earlier run); the one folder is then compared after the merge
     as_one = os.path.isdir(os.path.join(build.EDEN_LOAD, ONE))
@@ -323,7 +336,12 @@ def main():
         files.append(("INSTALL.txt", text.replace("\n", "\r\n").encode("utf-8")))
         write_zip(os.path.join(DIST, top + ".zip"), top, files)
         return
-    # in parts: the texts and the listings go into every part, the mod files are cut
+    write_parts(top, files, text, max_mb)
+
+
+def write_parts(top, files, text, max_mb):
+    """The package in parts: the texts and the listings go into every part, the mod files are cut."""
+    words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
     common = [(n, d) for n, d in files if not n.startswith("mods/")]
     budget = int(max_mb * 1e6) - sum(len(d) for _n, d in common) - (1 << 20)     # a margin for the zip's own records
     parts = split(sorted((n, d) for n, d in files if n.startswith("mods/")), budget)

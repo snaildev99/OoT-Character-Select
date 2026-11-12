@@ -95,10 +95,35 @@ def write(mod, rel, data, decompressed_size, sizes=None, size=None):
         need = size if size is not None else size_needed(key, decompressed_size)
         assert need >= decompressed_size
         sizes[key] = max(sizes.get(key, 0), need)
+        if key.startswith("Pack/Actor/") and key.endswith(".pack"):
+            packed_growth(rel, data, sizes)
     _write_raw(mod, rel, data, "(%d bytes, stock table %s)" % (decompressed_size, limit))
 
 
 PACKED_FILES = set()    # files that live inside a pack and have a size table entry of their own (the caller adds their names)
+
+
+def packed_growth(rel, data, sizes):
+    """A file inside an actor pack that has a size table entry of its own gets a heap of
+    that entry + 40 bytes, and the file itself is loaded into that heap before what is
+    parsed out of it. So a packed file that grew needs its entry raised by the growth, or
+    the last thing parsed finds no room and the game goes on with a null object (found
+    2026-11-12 in a running game: the adult's AnimationParam grew by 80 bytes for
+    IsRetarget, the eighth animation set was 24 bytes short, the loading thread died and
+    the Door of Time's loading screen never ended; README, NPC section, "The ankles")."""
+    stock = os.path.join(ROMFS, rel)
+    if not os.path.exists(stock):
+        return
+    old = nxfmt.sarc_files(nxfmt.unzs(open(stock, "rb").read(), rel))
+    for name, new in nxfmt.sarc_files(nxfmt.unzs(data, rel)).items():
+        entry = stock_table().get(name)
+        if entry is None or name not in old or len(new) <= len(old[name]):
+            continue
+        need = entry + ((len(new) - len(old[name]) + 31) & ~31)
+        if need > sizes.get(name, 0):
+            sizes[name] = need
+            PACKED_FILES.add(name)
+            print("  packed file grew: %s %d -> %d bytes, size table %d -> %d" % (name, len(old[name]), len(new), entry, need))
 
 
 def write_rstb(mod, sizes):

@@ -8,13 +8,13 @@ A full character select for *The Legend of Zelda: Ocarina of Time* on Switch 2: 
 
 Not affiliated with or endorsed by Nintendo. No game files are included; you need your own copy of the game. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 
-**Status:** early test version (v0.1.1). Back up your save before trying it.
+**Status:** early test version (v0.1.2). Back up your save before trying it.
 
 ## Install
 
 1. Download one of the two zips (pick one):
-   - **[v0.1.1-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.1-repack/OoT-Character-Select-v0.1.1-lite.zip)**: 21 characters, 171 MB.
-   - **[v0.1.1-repack](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.1-repack/OoT-Character-Select-v0.1.1-repack.zip)**: all 99 characters, 361 MB.
+   - **[v0.1.2-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.2/OoT-Character-Select-v0.1.2-lite.zip)**: 21 characters, 171 MB.
+   - **[v0.1.1-repack](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.1-repack/OoT-Character-Select-v0.1.1-repack.zip)**: all 99 characters, 361 MB. Still the previous version: the adult does not load in it (see below); its v0.1.2 follows.
 2. In your emulator's game list, right-click the game and choose "Open Mod Data Location".
 3. Copy the folder `OoT Character Select` from the zip's `mods` folder into it, and start the game.
 
@@ -59,7 +59,7 @@ Planned:
 
 ## Good to know
 
-- **Known issue in v0.1.1: the adult does not load.** Going through the Door of Time ends on a loading screen that never finishes, and an adult save is expected to do the same. Use a child save for now; a fix is being tested.
+- **Fixed in v0.1.2: the adult did not load.** In v0.1.1, going through the Door of Time ended on a loading screen that never finished. If you have v0.1.1, replace the folder with the new one.
 - **Button prompt mods conflict.** They replace the same texture file, so use either one of those or this mod.
 - **Names.** Most of the generic NPCs are still listed under their file names.
 - **Riding.** Swapping while riding is not handled yet.
@@ -83,6 +83,7 @@ The packages are the files on this repository's [releases page](https://github.c
 
 | Package | SHA-256 |
 | --- | --- |
+| `OoT-Character-Select-v0.1.2-lite.zip` | `45bf99f916218098713576e087c5725a19d69090ca01c76de8da41db4a2aac5b` |
 | `OoT-Character-Select-v0.1.1-lite.zip` | `4188673d5edd9b8afb6cac2ff75e988095e7eb9966a591d76265ba6b00e3833d` |
 | `OoT-Character-Select-v0.1.1-repack.zip` (all 99 characters) | `b19392577667d4b5565ad1c2e054069ee4a925f654087140b72bb439114c8c14` |
 | `OoT-Character-Select-v0.1.0.zip` (first test version, not on the releases page) | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |

@@ -1056,8 +1056,11 @@ def npc_character_models(mod, n_npc):
     # The giants' two fixes: every build since snaildev passed both in the test copy (2026-11-11).
     # A build whose cave has no room left (the UI sandbox's own, with its stick patch) goes
     # without and says so; the normal build and the field swap build have 16 bytes to spare.
-    for name, hook in (("backdrop_scale", backdrop_scale_hook), ("shadow_keep", shadow_keep_hook)):
+    for name, hook in (("backdrop_scale", backdrop_scale_hook), ("shadow_keep", shadow_keep_hook),
+                       ("slide_scale", slide_scale_hook)):
         try:
+            if name == "slide_scale" and "bd_actor" not in p.symbols:
+                raise AssertionError("code cave full")      # it needs the backdrop hook's routine
             hook(p)
         except AssertionError as e:
             if str(e) != "code cave full":
@@ -1148,20 +1151,8 @@ def backdrop_scale_hook(p):
         b.eq bs_actor
         fdiv s16, s9, s17
     bs_actor:
-        ldr w13, [x10, #%#x]
-        cmn w13, #1
-        b.eq bs_out
-        ldr x12, [x10, #%#x]
+        bl bd_actor
         cbz x12, bs_out
-        ldr w14, [x12, #0x48]
-        cmp w14, w13
-        b.ne bs_out
-        ldr x12, [x12, #0x40]
-        cbz x12, bs_out
-        ldr w14, [x12, #%#x]
-        sub w14, w14, #7
-        cmp w14, #5
-        b.lo bs_out
         str s16, [x12, #%#x]
         str s16, [x12, #%#x]
         str s16, [x12, #%#x]
@@ -1194,10 +1185,117 @@ def backdrop_scale_hook(p):
     bs_out:
         ldr w10, [x10, #0x30c]
         b #%#x
-    """ % (CAMERA_BLOCK_Z, BACKDROP_HANDLE + 0x18, BACKDROP_HANDLE + 0x10, ACTOR_STATE,
-           ACTOR_SCALE, ACTOR_SCALE + 4, ACTOR_SCALE + 8, save, MODEL_SCALE, MODEL_SCALE, MODEL_SCALE + 4, MODEL_SCALE + 8,
-           MODEL_NEW, MODEL_NEW, MODEL_UPDATE, load, at + 4))
+    bd_actor:
+        ldr w15, [x10, #%#x]
+        cmn w15, #1
+        b.eq ba_none
+        ldr x12, [x10, #%#x]
+        cbz x12, ba_out
+        ldr w14, [x12, #0x48]
+        cmp w14, w15
+        b.ne ba_none
+        ldr x12, [x12, #0x40]
+        cbz x12, ba_out
+        ldr w14, [x12, #%#x]
+        sub w14, w14, #7
+        cmp w14, #5
+        b.hs ba_out
+    ba_none:
+        mov x12, xzr
+    ba_out:
+        ret
+    """ % (CAMERA_BLOCK_Z, ACTOR_SCALE, ACTOR_SCALE + 4, ACTOR_SCALE + 8, save, MODEL_SCALE, MODEL_SCALE,
+           MODEL_SCALE + 4, MODEL_SCALE + 8, MODEL_NEW, MODEL_NEW, MODEL_UPDATE, load, at + 4,
+           BACKDROP_HANDLE + 0x18, BACKDROP_HANDLE + 0x10, ACTOR_STATE))
+    # bd_actor (x10 the manager -> x12 the live backdrop actor or 0; changes x14, x15, x30):
+    # the last 16 instructions of the cave above, also used by slide_scale_hook
+    p.symbols["bd_actor"] = p.cave_ptr - 16 * 4
     p.asm(at, "b {backdrop_scale}", expect="ldr w10, [x10, #0x30c]")
+
+
+# snaildev, 2026-11-11, the slide with giants: (1) going to a giant, the character that just slid
+# away shows again while the camera zooms out, before he is deleted; (2) going from a giant to
+# a small one, the giant barely moves for the size of the scene. The slide's two distances are
+# metres made for Link's view (build.SLIDE_OUT 2.0 to the right, SLIDE_IN 1.6 from the left;
+# the screen edge is 0.94 m from him), and the view is the zoom factor times as wide. Here the
+# distance build's vh_move adds to the standing place is multiplied by the zoom factor of the
+# camera update before (backdrop_scale_hook leaves it in the backdrop actor's scale), so a
+# character that is out stays out while the camera pulls back and a giant leaves at his size.
+def slide_scale_hook(p):
+    word = exepatch.assemble("fadd s17, s17, s16", 0)
+    start = p.symbols["vh_move"]
+    i, (addr, data) = next((i, e) for i, e in enumerate(p.patches) if e[0] <= start < e[0] + len(e[1]))
+    at = data.find(word, start - addr)
+    assert at % 4 == 0 and 0 < addr + at - start < 0x100 and data.count(word) == 1, "vh_move's add not found"
+    site = addr + at
+    # in vh_move here: x0 the actor, x1 show / hide, x13 the pivot table (needed after), s16 the
+    # metres, s17 the standing x; x10, x12, x14, x15 and v18 are free, x30 is saved in its frame
+    # (seven instructions: the spare area has room for eight)
+    with p.extra():
+        p.cave("slide_scale", """
+            ldr x10, [sp, #0x18]
+            bl #{bd_actor:#x}
+            cbz x12, ss_add
+            ldr s18, [x12, #%#x]
+            fmul s16, s16, s18
+        ss_add:
+            fadd s17, s17, s16
+            b #%#x
+        """ % (ACTOR_SCALE, site + 4))
+    branch = exepatch.assemble("b #%#x" % p.symbols["slide_scale"], site)
+    assert len(branch) == 4
+    p.patches[i] = (addr, data[:at] + branch + data[at + 4:])
+    p.symbols["slide_scale_site"] = site
+
+
+def check_slide_scale(p):
+    """The hook in an ARM64 emulator: the metres times the factor in the backdrop actor's
+    scale, added to the standing x; times nothing without a live backdrop; x0, x1 and x13
+    as they were. Returns the number of runs."""
+    import unicorn
+    from unicorn import arm64_const as A
+    site = p.symbols["slide_scale_site"]
+    uc = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
+    uc.reg_write(A.UC_ARM64_REG_CPACR_EL1, uc.reg_read(A.UC_ARM64_REG_CPACR_EL1) | (3 << 20))
+    mapped = set()
+    for addr, data in p.patches:
+        if addr >= 0x83c66000:
+            for pg in range(addr & ~0xFFF, (addr + len(data) + 0xFFF) & ~0xFFF, 0x1000):
+                if pg not in mapped:
+                    uc.mem_map(pg, 0x1000)
+                    mapped.add(pg)
+            uc.mem_write(addr, bytes(data))
+    heap = 0x10000000
+    uc.mem_map(heap, 0x10000)
+    mgr, link, actor, sp = heap + 0x1000, heap + 0x3000, heap + 0x5000, heap + 0xF000
+
+    def f32(x):
+        return struct.unpack("<f", struct.pack("<f", x))[0]
+
+    def run(metres, stand, factor, hid=0x55, link_id=0x55, state=4):
+        uc.mem_write(sp + 0x18, struct.pack("<Q", mgr))
+        uc.mem_write(mgr + BACKDROP_HANDLE + 0x10, struct.pack("<QI", link, hid))
+        uc.mem_write(link + 0x40, struct.pack("<QI", actor, link_id))
+        uc.mem_write(actor + ACTOR_STATE, struct.pack("<I", state))
+        uc.mem_write(actor + ACTOR_SCALE, struct.pack("<f", factor))
+        regs = {A.UC_ARM64_REG_X0: 0xAAA0, A.UC_ARM64_REG_X1: 2, A.UC_ARM64_REG_X13: 0x8486c110, A.UC_ARM64_REG_SP: sp}
+        for reg, v in regs.items():
+            uc.reg_write(reg, v)
+        uc.reg_write(A.UC_ARM64_REG_S16, struct.unpack("<I", struct.pack("<f", metres))[0])
+        uc.reg_write(A.UC_ARM64_REG_S17, struct.unpack("<I", struct.pack("<f", stand))[0])
+        uc.emu_start(site, site + 4, count=100)
+        assert uc.reg_read(A.UC_ARM64_REG_PC) == site + 4 and all(uc.reg_read(reg) == v for reg, v in regs.items())
+        return struct.unpack("<f", struct.pack("<I", uc.reg_read(A.UC_ARM64_REG_S17) & 0xFFFFFFFF))[0]
+
+    runs = 0
+    for stand in (0.0, 0.1):
+        for metres in (2.0, -1.6, 0.0, 0.73):
+            for factor in (1.0, 0.5, 1.65, 8.03, 26.78):
+                assert run(metres, stand, factor) == f32(f32(stand) + f32(f32(metres) * f32(factor))), (metres, factor)
+                for kw in (dict(hid=0xFFFFFFFF), dict(link_id=0x56), dict(state=9)):
+                    assert run(metres, stand, factor, **kw) == f32(f32(stand) + f32(metres)), kw
+                runs += 4
+    return runs
 
 
 def check_backdrop_scale(p):
@@ -2137,7 +2235,8 @@ def check_build(patcher, factors, reports, pre_heap):
     print("  page view: %d camera updates emulated, %d zoomed; factors %.2f .. %.2f"
           % (runs, zoomed, min(min(r) for r in factors), max(max(r) for r in factors)))
     for name, text, check in (("backdrop_scale", "backdrop scale: %d camera updates emulated", check_backdrop_scale),
-                              ("shadow_keep", "shadow range kept through a display request: %d runs emulated", check_shadow_keep)):
+                              ("shadow_keep", "shadow range kept through a display request: %d runs emulated", check_shadow_keep),
+                              ("slide_scale", "slide distance times the zoom: %d runs emulated", check_slide_scale)):
         print("  " + (text % check(patcher) if name in patcher.symbols else name + ": not in this build (no room in the cave)"))
     worst = check_heaps(pre_heap)
     print("  pre-actor render heap: largest need %d (%s) of %d" % (worst[0], worst[1], min(pre_heap.values())))

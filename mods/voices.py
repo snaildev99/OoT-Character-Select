@@ -61,6 +61,7 @@ BANK = "Player_Child"
 # with it: labels of the NPC session's list, build-npc\characters.txt)
 VOICES = {
     "Custom_Saria": ("Sa", ["Saria"]),
+    "Custom_Zelda_Child": ("Zc", ["Zelda (child)"]),
 }
 MOD = "Character (voice test)"      # "(" sorts before every letter: its size table is the one taken
 ARCHIVE = "PlayerVoice_Child_%s.bars"
@@ -228,7 +229,8 @@ def convert(voice, redo=False, more=0):
             else:
                 todo.append(a)
     report["tries"] = seed0 - 1337 + tries
-    ref, rate, used = voiceai.reference(voice)
+    # as much of the voice as fits beside a row (Saria has 21.7 s in all: unchanged by the limit)
+    ref, rate, used = voiceai.reference(voice, seconds=30 - ROW - 0.6)
     work = os.path.join(ROOT, "build-voice", "ai", "work", voice)
     os.makedirs(work, exist_ok=True)
     ref_path = os.path.join(work, "reference.wav")
@@ -801,8 +803,10 @@ def build():
     stock_raw = open(os.path.join(bwav.SOUND, BANK + ".bars.zs"), "rb").read()
     lines, lists, sizes, built = [], {}, {}, {}
     for voice, (_code, characters) in sorted(VOICES.items()):
-        report = convert(voice, "--redo" in sys.argv,
-                         int(sys.argv[sys.argv.index("--more") + 1]) if "--more" in sys.argv else 0)
+        named = [a for a in sys.argv[1:] if a in VOICES]        # --redo / --more for these voices only
+        mine = not named or voice in named
+        report = convert(voice, mine and "--redo" in sys.argv,
+                         int(sys.argv[sys.argv.index("--more") + 1]) if mine and "--more" in sys.argv else 0)
         archive, streams = voice_archive(voice, report)
         name = ARCHIVE % label(voice).replace(" ", "_")
         with open(os.path.join(sound, name + ".zs"), "wb") as f:

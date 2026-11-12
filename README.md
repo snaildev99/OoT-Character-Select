@@ -1,10 +1,10 @@
 # OoT Character Select
 
-A mod for *The Legend of Zelda: Ocarina of Time* on Switch 2 (game version 1.1.1) that adds a **Characters** page to the − menu. Pick any of 99 characters, Link and the game's own NPCs, and play as them.
+A mod for *The Legend of Zelda: Ocarina of Time* on Switch 2 (game version 1.1.1) that adds a **Characters** page to the − menu. Pick a character, Link or one of the game's own NPCs, and play as them. The lite release has 21 characters; the source builds all 99.
 
 Not affiliated with or endorsed by Nintendo. No game files are included; you need your own copy of the game. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 
-**Status:** early test version (v0.1.1). Back up your save before trying it.
+**Status:** early test version (v0.1.1 lite). Back up your save before trying it.
 
 ## What it does
 
@@ -19,50 +19,37 @@ What the characters can do in this version:
 - **Every character** is a model swap on Link's animations, with basic facial animation and legs that follow slopes and ledges.
 - **Saria and young Zelda** speak with their own voices.
 - **Young Zelda's dress** has experimental cloth physics.
-- **Only a handful of the 99 have been tested in play.** Expect visual faults on most of the others.
+- **Only some have been tested in play.** Expect visual faults.
+- **The lite release has 21 characters:** Link, Saria, Mido, young and adult Zelda, Sheik, Impa, Ganondorf, young and adult Malon, young and adult Ruto, Rauru, King Zora, Nabooru, Darunia, Medigoron, Biggoron and three townspeople. The other 78 are in the source (`mods\build.py --full`) and come back as they are tested.
 
 ## Install
 
-The mod is eight folders for the emulator's mods folder. Where the download is in parts, unpack all of them into the same place first: they hold the same folders, and each part adds files to them.
+The mod is one folder for the emulator's mods folder.
 
 1. Close the game.
 2. In the emulator's game list, right-click the game and choose "Open Mod Data Location". This opens `...\load\0400486024DEC000`.
-3. Copy the eight folders into it with their names unchanged (the emulator layers mod folders in name order, and the order matters):
-   - `Character (voice test)`
-   - `Character cloth (test)`
-   - `Character dress (test)`
-   - `Character field swap`
-   - `Character models`
-   - `Characters page`
-   - `Header four tabs`
-   - `NPC characters`
-4. Start the game. Each folder can be switched off under the game's properties, Add-Ons.
+3. Copy the folder `OoT Character Select` from the zip's `mods` folder into it.
+4. Start the game. The mod can be switched off under the game's properties, Add-Ons.
 
-To remove the mod, delete the eight folders.
+To remove the mod, delete the folder.
 
 Good to know:
 
-- **Game version 1.1.1 only.** The code patches are tied to that build (build id `E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348`). On another version, switch the folders off.
+- **Game version 1.1.1 only.** The code patches are tied to that build (build id `E0F3CCFAF50065AE4EA01EB5AEB13B1A45DA3348`). On another version, switch the mod off.
 - **Button prompt mods conflict.** This mod replaces the same layout texture file, so only one of the two can be on.
-- **`Character field swap` can be off by itself.** The picked character then shows in the field after save, return to title and Continue.
-- **The three folders with "test" in the name can be off too.** They hold the voices and young Zelda's cloth; `Character dress (test)` is used when the cloth folder is off.
-- **Known gaps:** most NPCs are listed under their file names, and swapping while riding is not handled.
+- **Known gaps:** some NPCs are listed under their file names, and swapping while riding is not handled.
 - **Known issue:** browsing the picker for a long time could freeze the game in earlier builds. This version makes that much less likely, but the cause is not fully found yet, so save before a long browse.
 
 ## Is it safe to install?
 
-A mod package from this project holds data files only: changed or added game files (`.zs`, `.ainb`, `.bwav`, `.bphcl`) and six small patches to the game's own code (`.ips`), which run inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If a package claiming to be this mod contains anything else, do not use it.
+A mod package from this project holds data files only: changed or added game files (`.zs`, `.ainb`, `.bwav`, `.bphcl`) and one small patch file for the game's own code (`.ips`), which runs inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If a package claiming to be this mod contains anything else, do not use it.
 
 Packages made by the author, and the SHA-256 sum of each zip:
 
 | Package | SHA-256 |
 | --- | --- |
-| `OoT-Character-Select-v0.1.1-part1.zip` | `a0d8580db83a1f417eab775d1f58c8df5af4d9630b95ac4b1150437066bc1b44` |
-| `OoT-Character-Select-v0.1.1-part2.zip` | `401509a49046d90e026bf0134bd506985896a4e439dd77515537a068bd103ead` |
-| `OoT-Character-Select-v0.1.1-part3.zip` | `5ffc6408cb2058ff57c00e600c720db4900efda6849535135d9553424f5d40d1` |
-| `OoT-Character-Select-v0.1.1-part4.zip` | `d98939b0d253212d000e6984b414ab19ebaf2cda37c52f405542902d03ed9339` |
-| `OoT-Character-Select-v0.1.1-part5.zip` | `29b6b321f71bc67c1037b398e5ab95272995d7101b266ae98d8b8b114e548179` |
-| `OoT-Character-Select-v0.1.1.zip` (all parts in one) | `a2ef2f82f199df19832d69c875c02c359f31e4afbc224513f09e681fe264aeaf` |
+| `OoT-Character-Select-v0.1.1-lite.zip` | `4188673d5edd9b8afb6cac2ff75e988095e7eb9966a591d76265ba6b00e3833d` |
+| `OoT-Character-Select-v0.1.1.zip` (all 99 characters as eight folders; not handed out) | `a2ef2f82f199df19832d69c875c02c359f31e4afbc224513f09e681fe264aeaf` |
 | `OoT-Character-Select-v0.1.0.zip` | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
 
 Check a zip you were sent with `certutil -hashfile <zip> SHA256` (Windows) before unpacking it.
@@ -81,7 +68,7 @@ set OOT_IMAGE=C:\path\to\image.bin
 venv\Scripts\python mods\build.py
 ```
 
-The mod folders are written to `build\`. `--install` also copies them into `%APPDATA%\eden\load\0400486024DEC000`. The voices folder is built apart by `mods\voices.py`, which needs a voice conversion setup of its own (`docs/NOTES.md`, voices section).
+The build writes several working folders to `build\` (the 21 characters of the lite release; `--full` builds all 99). `--install` also copies them into the emulator's mods folder (`%APPDATA%\lichii\load\0400486024DEC000`; set `OOT_MODS_APP=eden` for an emulator that uses `%APPDATA%\eden`). `tools\package.py` merges the working folders into the one folder of a release. The voices folder is built apart by `mods\voices.py`, which needs a voice conversion setup of its own (`docs/NOTES.md`, voices section).
 
 Two inputs are not in this repository, and the full build currently expects both:
 

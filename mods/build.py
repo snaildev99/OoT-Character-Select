@@ -37,7 +37,10 @@ import layout  # noqa: E402
 ROMFS = nxfmt.ROMFS
 SEQ = os.path.join(ROMFS, "Sequence")
 BUILD = os.path.join(ROOT, "build")
-EDEN_LOAD = os.path.join(os.environ["APPDATA"], "eden", "load", "0400486024DEC000")
+# The normal emulator's mods folder. Since 2026-11-12 that is Lichii (build 160, its own
+# data folder %APPDATA%\lichii; snaildev: development moves there, it does not have the texture
+# fault). OOT_MODS_APP=eden installs into Fritchii's folder as before (the name stays).
+EDEN_LOAD = os.path.join(os.environ["APPDATA"], os.environ.get("OOT_MODS_APP", "lichii"), "load", "0400486024DEC000")
 
 
 def guid(key):
@@ -2755,9 +2758,13 @@ RETIRED = ["Test 1 - Characters tab name", "Test 2 - L on Key Items", "Test 3 - 
            # of the size table that was installed when it was built, plus its own two entries, and
            # sorts first so the emulator takes that copy. After this install that copy is out of
            # date, so the folder goes; `mods\voices.py --install` puts it back, built on the new table.
+           # main() keeps it where the table and our code patches are the installed ones.
            "Character (voice test)",
            # the picker freeze's experiment (2026-11-12): what it tested is the build now
-           "Character texts (test)"]
+           "Character texts (test)",
+           # tools\package.py --install: the package's one folder, all of ours merged
+           "OoT Character Select"]
+VOICE_MOD = "Character (voice test)"
 EMULATORS =("lichii.exe", "eden.exe", "yuzu.exe")
 
 
@@ -2785,6 +2792,18 @@ def emulator_running():
 # place in the list and the stored number are two things (Picker.number). A save that
 # has such a number shows that character and the picker without an orange slot.
 PICKER_HIDDEN = [1]
+# The lite build (snaildev, 2026-11-12: a short roster for testing and for posting; the full
+# set is 255 MB of model files). The picker offers these stored numbers, in this order (18
+# to a sheet, so two sheets), and only their model files and portraits are shipped; the
+# numbers themselves and everything in the code patches stay those of the ring of 100.
+# `--full` builds all of them as before. A save whose stored number is not in the roster
+# would ask for a model file nobody ships: pick one of these and save before the switch.
+# Link, Zelda (child), Saria, Mido, Malon (child), Ruto (child) / Zelda, Sheik, Impa,
+# Ganondorf, Malon, Ruto / Rauru, King Zora, Nabooru, Darunia, Medigoron, Biggoron /
+# Hylia_MM_002, Hylia_MU_005, Hylia_WN_008
+PICKER_ROSTER = [0, 4, 2, 3, 5, 6, 8, 9, 10, 15, 11, 12, 18, 17, 13, 16, 26, 25, 47, 70, 87]
+ROSTER_MODEL = r"Model/Player_(Child|Adult)_C(\d{3})\.Player_\1\.bfres\.zs"     # npc_characters.MODEL_FILE
+ROSTER_LEFT_OUT = set()             # the model files the lite build did not write (main)
 # The picker's three-line detail text per character (T_CellText_ccc: stored number, model,
 # users) is shipped empty (2026-11-12). With them the game froze three times after minutes
 # of page turns and cursor moves (its text routine drew one of them with no glyph storage:
@@ -3139,6 +3158,10 @@ def picker_page(mod="Characters page"):
             ring = self.n
             assert all(0 < h < ring for h in PICKER_HIDDEN)             # Link stays, in the first slot
             self.numbers = [c for c in range(ring) if c not in PICKER_HIDDEN]
+            if PICKER_ROSTER:
+                assert PICKER_ROSTER[0] == 0 and len(set(PICKER_ROSTER)) == len(PICKER_ROSTER)
+                assert all(c in self.numbers for c in PICKER_ROSTER)
+                self.numbers = list(PICKER_ROSTER)
             self.names = [self.names[c] for c in self.numbers]
             self.captions = [self.captions[c] for c in self.numbers]    # their texts name the stored number
             self.n = len(self.numbers)
@@ -3153,9 +3176,10 @@ def picker_page(mod="Characters page"):
             in its last row that has it."""
             s, j = divmod(c, ui.PER_SHEET)
             to = (s + step) % self.sheets * ui.PER_SHEET + j
-            while to not in self.on_sheet((s + step) % self.sheets):
+            there = list(self.on_sheet((s + step) % self.sheets))
+            while to not in there and to >= there[0]:
                 to -= ui.PICK_COLS
-            return to
+            return to if to in there else there[-1]     # a sheet without that column: its last slot
 
         def after(self, c, button, chosen):
             if button in ("ZR", "ZL"):
@@ -3166,8 +3190,13 @@ def picker_page(mod="Characters page"):
     last = pk.n - 1
     assert pk.turn_to(0, 1) == ui.PER_SHEET and pk.turn_to(ui.PER_SHEET + 7, -1) == 7
     assert pk.turn_to(last, 1) == last % ui.PER_SHEET and pk.turn_to(last % ui.PER_SHEET, -1) == last
-    assert all(pk.turn_to(c, d) in pk.on_sheet((c // ui.PER_SHEET + d) % pk.sheets) and
-               pk.turn_to(c, d) % ui.PICK_COLS == c % ui.PICK_COLS for c in range(pk.n) for d in (1, -1))
+    for c in range(pk.n):
+        for d in (1, -1):
+            there = list(pk.on_sheet((c // ui.PER_SHEET + d) % pk.sheets))
+            to = pk.turn_to(c, d)
+            assert to in there
+            assert to % ui.PICK_COLS == c % ui.PICK_COLS or \
+                (to == there[-1] and not any(t % ui.PICK_COLS == c % ui.PICK_COLS for t in there))
     data, msgs = ui.make_picker_layout(pk)
     right = ui.check_picker(data, pk)           # the UI session's check, on its own layout
     names, n_pictures = portrait_textures(mod, pk.numbers)
@@ -3225,6 +3254,41 @@ def field_swap_hooks():
     return fs
 
 
+def lite_roster(npc):
+    """The lite build: the NPC session's model files are written only for the characters of
+    PICKER_ROSTER (its build is used as it is: our `write` leaves the other files out, so
+    they get no size table entry either). Its check that every path the model hook can ask
+    for is shipped then knows those files as left out on purpose, and nothing else."""
+    global write
+    import re
+    own = len(CHARACTERS)
+    keep = {c - own for c in PICKER_ROSTER if c >= own}
+    n_npc = len(npc.characters())
+    assert all(0 <= k < n_npc for k in keep)
+    real_write, real_check = write, npc.check_model_hook
+    ROSTER_LEFT_OUT.clear()
+
+    def lite_write(mod, rel, *args, **kw):
+        m = re.fullmatch(ROSTER_MODEL, rel)
+        if m and mod == npc.MOD and int(m.group(2)) < n_npc and int(m.group(2)) not in keep:
+            ROSTER_LEFT_OUT.add(os.path.normcase(os.path.join(BUILD, mod, "romfs", *rel.split("/"))))
+            return None
+        return real_write(mod, rel, *args, **kw)
+
+    def lite_check(p, n):
+        assert len(ROSTER_LEFT_OUT) == 2 * (n_npc - len(keep)), len(ROSTER_LEFT_OUT)
+        assert not any(os.path.exists(path) for path in ROSTER_LEFT_OUT)
+        exists = os.path.exists
+        os.path.exists = lambda path: exists(path) or os.path.normcase(path) in ROSTER_LEFT_OUT
+        try:
+            return real_check(p, n)
+        finally:
+            os.path.exists = exists
+
+    write = lite_write
+    npc.check_model_hook = lite_check
+
+
 def main():
     """The full build: the Characters page is the UI session's picker (picker_page), every
     character of the NPC session's ring can be picked (mods\\npc_characters.py as a library:
@@ -3235,7 +3299,9 @@ def main():
     `--cycle`: our page with the NPCs and D-pad Left / Right through CYCLE_NAMES with the
     slide (for work on the transition). `--install`: also copy into the emulator's mods
     folder and remove retired folders. (`--npcs`, the full build's old name, is accepted.)"""
-    global CYCLE, SWAP_SLIDES
+    global CYCLE, SWAP_SLIDES, PICKER_ROSTER
+    if "--full" in sys.argv:
+        PICKER_ROSTER = []
     install = "--install" in sys.argv
     plain, cycle = "--plain" in sys.argv, "--cycle" in sys.argv
     assert not (plain and cycle)
@@ -3264,8 +3330,12 @@ def main():
             SWAP_SLIDES = True
             if "--no-field-swap" not in sys.argv:
                 field = field_swap_hooks()      # before anything is built: it wraps what builds
+        if PICKER_ROSTER and not cycle:
+            lite_roster(npc)
         built_npc = npc.build_mods()
-        extra = [npc.MOD] + list(npc.EXTRA_MODS)    # its test folders (override folders, as EXPERIMENTS)
+        if ROSTER_LEFT_OUT:
+            print("  lite: %d model files of characters outside the roster not written" % len(ROSTER_LEFT_OUT))
+        extra =[npc.MOD] + list(npc.EXTRA_MODS)    # its test folders (override folders, as EXPERIMENTS)
         retired += list(npc.RETIRED)
         if not cycle:
             # the picker's layout is the page's own: the layout test folder would override it
@@ -3301,7 +3371,24 @@ def main():
         retired.append(field_swap.MOD)
         shutil.rmtree(os.path.join(BUILD, field_swap.MOD), ignore_errors=True)
     if install:
-        for mod in list(MODS) + extra + list(experiments):
+        # The voices folder (mods\voices.py) depends on two things of ours: the size table it
+        # copied and that no code patch of ours touches its bytes. Where the tables and the
+        # patches we are about to install are byte for byte the installed ones, it is still
+        # right and stays (2026-11-12: putting it back took 80 s of every test round).
+        def depends(base, mod):
+            out = {}
+            for root, _d, names in os.walk(os.path.join(base, mod)):
+                for n in names:
+                    if n.endswith(".ips") or n == os.path.basename(rstb.PATH):
+                        p = os.path.join(root, n)
+                        out[os.path.relpath(p, base)] = open(p, "rb").read()
+            return out
+        mods = list(MODS) + extra + list(experiments)
+        if os.path.isdir(os.path.join(EDEN_LOAD, VOICE_MOD)) and \
+                all(depends(BUILD, mod) == depends(EDEN_LOAD, mod) for mod in mods):
+            retired.remove(VOICE_MOD)
+            print("  kept %s: the size table and the code patches did not change" % VOICE_MOD)
+        for mod in mods:
             dst = os.path.join(EDEN_LOAD, mod)
             shutil.rmtree(dst, ignore_errors=True)
             shutil.copytree(os.path.join(BUILD, mod), dst)

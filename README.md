@@ -47,6 +47,7 @@ Good to know:
 - **`Character field swap` can be off by itself.** The picked character then shows in the field after save, return to title and Continue.
 - **The three folders with "test" in the name can be off too.** They hold the voices and young Zelda's cloth; `Character dress (test)` is used when the cloth folder is off.
 - **Known gaps:** most NPCs are listed under their file names, and swapping while riding is not handled.
+- **Known issue:** browsing the picker for a long time could freeze the game in earlier builds. This version makes that much less likely, but the cause is not fully found yet, so save before a long browse.
 
 ## Is it safe to install?
 
@@ -56,7 +57,7 @@ Packages made by the author, and the SHA-256 sum of each zip:
 
 | Package | SHA-256 |
 | --- | --- |
-| `OoT-Character-Select-v0.1.1.zip` | `f510576f1d7175320ab50c390a2a337b7b530c409b714d8ec08a03a0ff8da9af` |
+| `OoT-Character-Select-v0.1.1.zip` | `a2ef2f82f199df19832d69c875c02c359f31e4afbc224513f09e681fe264aeaf` |
 | `OoT-Character-Select-v0.1.0.zip` | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
 
 Check a zip you were sent with `certutil -hashfile <zip> SHA256` (Windows) before unpacking it.

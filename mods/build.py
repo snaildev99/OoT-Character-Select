@@ -2755,7 +2755,9 @@ RETIRED = ["Test 1 - Characters tab name", "Test 2 - L on Key Items", "Test 3 - 
            # of the size table that was installed when it was built, plus its own two entries, and
            # sorts first so the emulator takes that copy. After this install that copy is out of
            # date, so the folder goes; `mods\voices.py --install` puts it back, built on the new table.
-           "Character (voice test)"]
+           "Character (voice test)",
+           # the picker freeze's experiment (2026-11-12): what it tested is the build now
+           "Character texts (test)"]
 EMULATORS =("lichii.exe", "eden.exe", "yuzu.exe")
 
 
@@ -2783,6 +2785,14 @@ def emulator_running():
 # place in the list and the stored number are two things (Picker.number). A save that
 # has such a number shows that character and the picker without an orange slot.
 PICKER_HIDDEN = [1]
+# The picker's three-line detail text per character (T_CellText_ccc: stored number, model,
+# users) is shipped empty (2026-11-12). With them the game froze three times after minutes
+# of page turns and cursor moves (its text routine drew one of them with no glyph storage:
+# README, mods list, "The picker freeze"); with the same texts emptied snaildev could not
+# freeze it ("spent quite a while"), and they were debug information anyway. The panes stay:
+# only the messages are empty, exactly what that test folder shipped.
+PICKER_DETAIL_PANES = "T_CellText_"
+PICKER_DETAIL_TEXTS = False
 PORTRAIT_DIR = os.path.join(ROOT, "build-npc", "portraits", "cut-fit")
 PORTRAIT_PIXELS = 256               # a slot is about 260 layout units = 260 pixels at 4K
 PORTRAIT_SIZE = 232.0               # layout units; the slot's shape is 259 x 263
@@ -3172,6 +3182,11 @@ def picker_page(mod="Characters page"):
            % (ui.LAYOUT, len(data), len(ed.panes), len(ed.dict_items(0x140)), len(msgs), pk.n, pk.sheets, ui.PICK_LEFT, right)]
     out.append("  portraits: %d pictures of %d characters as textures of %d pixels, a placeholder for the rest;"
                " one picture pane per character" % (n_pictures, pk.n, PORTRAIT_PIXELS))
+    if not PICKER_DETAIL_TEXTS:
+        detail = [label for label in msgs if label.startswith(PICKER_DETAIL_PANES)]
+        assert len(detail) == pk.n
+        msgs = {label: ("" if label in detail else text) for label, text in msgs.items()}
+        out.append("  detail texts: %d messages shipped empty" % len(detail))
     ui.sandbox(layouts, msgs)
     g, presses = picker_graph(ui, mod, pk)
     patch = ui.stick_patch()

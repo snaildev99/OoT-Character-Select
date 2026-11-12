@@ -1,7 +1,10 @@
 """Make the package that is handed to other people: the mod folders of the full build as
 one zip, with a list of SHA-256 sums and the readable listings of the code patches.
 
-    venv\\Scripts\\python.exe tools\\package.py <version> [--name <name>] [--allow-untested]
+    venv\\Scripts\\python.exe tools\\package.py <version> [--name <name>] [--allow-untested] [--max-mb <size>]
+
+--max-mb cuts the package into parts no larger than that (a download site's limit); the
+parts unpack into the same folders.
 
 What goes in is build\\<folder> for the folders install-mods.bat installs, plus the
 voices folder of mods\\voices.py (build-voice\\mod; it is installed after the others). Unless
@@ -88,6 +91,12 @@ What is in here
   https://github.com/snaildev99/OoT-Character-Select
 """
 
+PARTS = """This is part {k} of {n}. The mod needs every part ({words} in all):
+{names}
+  Unpack them into the same place: they hold the same folders, and Windows merges
+  them (choose to merge folders if it asks). Then install as described below.
+
+"""
 
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
@@ -128,28 +137,14 @@ def collect(check_installed=True):
     return out, left_out
 
 
-def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    name = NAME
-    if "--name" in sys.argv:
-        name = sys.argv[sys.argv.index("--name") + 1]
-        args.remove(name)
-    assert len(args) == 1, __doc__
-    version = args[0]
-    files, left_out = collect("--allow-untested" not in sys.argv)
-    words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
-    text = INSTALL.format(name=name, version=version, build_id=exepatch.BUILD_ID, count=words[len(FOLDERS)],
-                          patches=words[sum(n.endswith(".ips") for n, _ in files)],
-                          folders="\n".join("       " + f for f in FOLDERS))
-    files.append(("INSTALL.txt", text.replace("\n", "\r\n").encode("utf-8")))
-    files.sort()
+def write_zip(path, top, files):
+    """One zip of [(name, bytes)] plus its SHA256SUMS.txt, read back; -> its sum."""
+    files = sorted(files)
     sums = "".join("%s  %s\n" % (sha256(data), n) for n, data in files)
     files.append(("SHA256SUMS.txt", sums.encode("utf-8")))
-    os.makedirs(DIST, exist_ok=True)
-    path = os.path.join(DIST, "%s-%s.zip" % (name, version))
     with zipfile.ZipFile(path, "w") as z:
         for n, data in files:
-            info = zipfile.ZipInfo("%s-%s/%s" % (name, version, n), DATE)
+            info = zipfile.ZipInfo("%s/%s" % (top, n), DATE)
             info.external_attr = 0o644 << 16
             # the game's files are compressed already
             info.compress_type = zipfile.ZIP_STORED if n.endswith(".zs") else zipfile.ZIP_DEFLATED
@@ -159,15 +154,70 @@ def main():
         assert z.testzip() is None
         names = z.namelist()
         assert len(names) == len(files) and all(n.lower().endswith(DATA + (".txt",)) for n in names)
-        for line in z.read("%s-%s/SHA256SUMS.txt" % (name, version)).decode().splitlines():
+        for line in z.read("%s/SHA256SUMS.txt" % top).decode().splitlines():
             digest, n = line.split("  ", 1)
-            assert sha256(z.read("%s-%s/%s" % (name, version, n))) == digest, n
+            assert sha256(z.read("%s/%s" % (top, n))) == digest, n
     total = sha256(open(path, "rb").read())
     with open(path + ".sha256", "w") as f:
         f.write("%s  %s\n" % (total, os.path.basename(path)))
     print("%s: %d files, %.1f MB" % (path, len(files), os.path.getsize(path) / 1e6))
-    print("  left out (%d): %s" % (len(left_out), ", ".join(os.path.basename(n) for n in left_out)))
     print("  sha256 %s" % total)
+    return total
+
+
+def split(files, limit):
+    """The mod files in order, cut into as few parts as stay under `limit` bytes each (a
+    file's own size counts in full: most are stored, not deflated). A folder may be cut;
+    the parts unpack into the same folders."""
+    parts, size = [[]], 0
+    for n, data in files:
+        if size + len(data) > limit and parts[-1]:
+            parts.append([])
+            size = 0
+        parts[-1].append((n, data))
+        size += len(data)
+    return parts
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    name, max_mb = NAME, None
+    if "--name" in sys.argv:
+        name = sys.argv[sys.argv.index("--name") + 1]
+        args.remove(name)
+    if "--max-mb" in sys.argv:
+        max_mb = sys.argv[sys.argv.index("--max-mb") + 1]
+        args.remove(max_mb)
+        max_mb = float(max_mb)
+    assert len(args) == 1, __doc__
+    version = args[0]
+    files, left_out = collect("--allow-untested" not in sys.argv)
+    words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+    text = INSTALL.format(name=name, version=version, build_id=exepatch.BUILD_ID, count=words[len(FOLDERS)],
+                          patches=words[sum(n.endswith(".ips") for n, _ in files)],
+                          folders="\n".join("       " + f for f in FOLDERS))
+    top = "%s-%s" % (name, version)
+    os.makedirs(DIST, exist_ok=True)
+    print("left out (%d): %s" % (len(left_out), ", ".join(os.path.basename(n) for n in left_out)))
+    if max_mb is None:
+        files.append(("INSTALL.txt", text.replace("\n", "\r\n").encode("utf-8")))
+        write_zip(os.path.join(DIST, top + ".zip"), top, files)
+        return
+    # in parts: the texts and the listings go into every part, the mod files are cut
+    common = [(n, d) for n, d in files if not n.startswith("mods/")]
+    budget = int(max_mb * 1e6) - sum(len(d) for _n, d in common) - (1 << 20)     # a margin for the zip's own records
+    parts = split(sorted((n, d) for n, d in files if n.startswith("mods/")), budget)
+    for k, part in enumerate(parts):
+        note = PARTS.format(k=k + 1, n=len(parts), words=words[len(parts)],
+                            names="\n".join("  %s-part%d.zip" % (top, i + 1) for i in range(len(parts))))
+        mine = text.replace("What it does\n", note + "What it does\n", 1)
+        assert mine != text
+        path = os.path.join(DIST, "%s-part%d.zip" % (top, k + 1))
+        write_zip(path, top, common + part + [("INSTALL.txt", mine.replace("\n", "\r\n").encode("utf-8"))])
+        assert os.path.getsize(path) <= max_mb * 1e6, path
+    # every mod file is in exactly one part
+    got = sorted(n for part in parts for n, _d in part)
+    assert got == sorted(n for n, _d in files if n.startswith("mods/"))
 
 
 if __name__ == "__main__":

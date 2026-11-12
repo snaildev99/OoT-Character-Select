@@ -23,7 +23,7 @@ What the characters can do in this version:
 
 ## Install
 
-The mod is eight folders for the emulator's mods folder. Where the download is in two parts, unpack both into the same place first: they hold the same folders, and the second part only adds files to `NPC characters`.
+The mod is eight folders for the emulator's mods folder. Where the download is in parts, unpack all of them into the same place first: they hold the same folders, and each part adds files to them.
 
 1. Close the game.
 2. In the emulator's game list, right-click the game and choose "Open Mod Data Location". This opens `...\load\0400486024DEC000`.
@@ -57,9 +57,12 @@ Packages made by the author, and the SHA-256 sum of each zip:
 
 | Package | SHA-256 |
 | --- | --- |
-| `OoT-Character-Select-v0.1.1-part1.zip` | `c153f1249de8fb1af1e9243e5e2c06ed8a4581968b2b2c93937120cea9fe9228` |
-| `OoT-Character-Select-v0.1.1-part2.zip` | `3d4e650e86ff504695063b1928a29db7c0d508f99410f17b12810697dd3faaaf` |
-| `OoT-Character-Select-v0.1.1.zip` (both parts in one) | `a2ef2f82f199df19832d69c875c02c359f31e4afbc224513f09e681fe264aeaf` |
+| `OoT-Character-Select-v0.1.1-part1.zip` | `a0d8580db83a1f417eab775d1f58c8df5af4d9630b95ac4b1150437066bc1b44` |
+| `OoT-Character-Select-v0.1.1-part2.zip` | `401509a49046d90e026bf0134bd506985896a4e439dd77515537a068bd103ead` |
+| `OoT-Character-Select-v0.1.1-part3.zip` | `5ffc6408cb2058ff57c00e600c720db4900efda6849535135d9553424f5d40d1` |
+| `OoT-Character-Select-v0.1.1-part4.zip` | `d98939b0d253212d000e6984b414ab19ebaf2cda37c52f405542902d03ed9339` |
+| `OoT-Character-Select-v0.1.1-part5.zip` | `29b6b321f71bc67c1037b398e5ab95272995d7101b266ae98d8b8b114e548179` |
+| `OoT-Character-Select-v0.1.1.zip` (all parts in one) | `a2ef2f82f199df19832d69c875c02c359f31e4afbc224513f09e681fe264aeaf` |
 | `OoT-Character-Select-v0.1.0.zip` | `4b11117ad7ef6849049c48c2c4e41ddca3f776efe6d7ac08968ca23b378b25de` |
 
 Check a zip you were sent with `certutil -hashfile <zip> SHA256` (Windows) before unpacking it.

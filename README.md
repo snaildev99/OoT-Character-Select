@@ -14,7 +14,7 @@ Not affiliated with or endorsed by Nintendo. No game files are included; you nee
 
 1. Download one of the two zips (pick one):
    - **[v0.1.3-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3-lite.zip)**: 21 characters, 171 MB.
-   - **[v0.1.2](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.2/OoT-Character-Select-v0.1.2.zip)**: all 99 characters, 361 MB. On an emulator it plays the same as v0.1.3; the full v0.1.3 package follows.
+   - **[v0.1.3](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3.zip)**: all 99 characters, 361 MB.
 2. In your emulator's game list, right-click the game and choose "Open Mod Data Location".
 3. Copy the folder `OoT Character Select` from the zip's `mods` folder into it, and start the game.
 
@@ -85,6 +85,7 @@ The packages are the files on this repository's [releases page](https://github.c
 | Package | SHA-256 |
 | --- | --- |
 | `OoT-Character-Select-v0.1.3-lite.zip` | `ff60cd9bd4f7c5ca1cdbfbb2242fd8fd2dfa08e221e856dd1c2c65d64dd2d5e1` |
+| `OoT-Character-Select-v0.1.3.zip` (all 99 characters) | `9f3fb3d6ffcf4a6bfc9d7b5655ba55a22fe58cae96eaa08986e6fee255079a4b` |
 | `OoT-Character-Select-v0.1.2-lite.zip` | `45bf99f916218098713576e087c5725a19d69090ca01c76de8da41db4a2aac5b` |
 | `OoT-Character-Select-v0.1.2.zip` (all 99 characters) | `be1faf4b95e21e88c78407bc50271683fb027bdf6ec5247de4e456ed0a4a9769` |
 | `OoT-Character-Select-v0.1.1-lite.zip` | `4188673d5edd9b8afb6cac2ff75e988095e7eb9966a591d76265ba6b00e3833d` |

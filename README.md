@@ -61,6 +61,7 @@ Planned:
 
 - **Fixed in v0.1.3: a crash on Longshot and Hookshot builds with code mods.** One of the mod's code routines was written in a way the console and the emulators accept and those builds do not; picking a character crashed there. On an emulator nothing changes from v0.1.2.
 - **Fixed in v0.1.2: the adult did not load.** In v0.1.1, going through the Door of Time ended on a loading screen that never finished. If you have v0.1.1, replace the folder with the new one.
+- **Known issue on Longshot and Hookshot builds with code mods: switching the mod Off leaves half of it.** The mod's code patch is built into the game, so it stays until the game is built again, while the mod's other files stop loading. The game runs, but the − menu's tabs are drawn wrong. For a clean off, build the game again with the mod switched off or removed; switching it back On needs no build. On an emulator, Off is clean.
 - **Button prompt mods conflict.** They replace the same texture file, so use either one of those or this mod.
 - **Names.** Most of the generic NPCs are still listed under their file names.
 - **Riding.** Swapping while riding is not handled yet.

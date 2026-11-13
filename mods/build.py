@@ -2796,7 +2796,12 @@ RETIRED = ["Test 1 - Characters tab name", "Test 2 - L on Key Items", "Test 3 - 
            # the picker freeze's experiment (2026-11-12): what it tested is the build now
            "Character texts (test)",
            # tools\package.py --install: the package's one folder, all of ours merged
-           "OoT Character Select"]
+           "OoT Character Select",
+           # mods\customize.py's folder (customization track, 2026-11-13). Not retired: it is made
+           # from the files that are installed (its own versions of the page's graph and layout
+           # archive, laid over them), so it goes with every normal install;
+           # `mods\customize.py --install` puts it back in seconds.
+           "Character (customize test)"]
 VOICE_MOD = "Character (voice test)"
 EMULATORS =("lichii.exe", "eden.exe", "yuzu.exe")
 

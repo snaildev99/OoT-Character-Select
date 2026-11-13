@@ -98,6 +98,19 @@ What player_rig() builds, per NPC and per Link age:
    cloth file). The top bone of each skirt column, which on the NPC was moved by its own
    helper bone parameters, hangs under Link's bone of that name as in step 7, so the cloth
    has a moving bone to hang from; everything else stays where the NPC had it.
+   For every character (2026-11-13; hair, sleeves, trinkets are meshes of the same file):
+   - a cloth bone that has a name of Link's but no such word (Hair_Root, Weapon_R) gets one
+     letter replaced, the last of its first word first (Haiz_Root; _alias_free);
+   - a joint the cloth file names that ends up unbound (steps 1 and 6 leave some alone) is
+     a cloth bone like the others;
+   - a joint the cloth file names keeps its name, and the file's collision shapes and
+     pinned points ride on its frame. Step 1 turns that frame to Link's (as adult Link the
+     clavicles by 10 degrees, the legs by 5; Dampe's spine by 34) and step 5 moves hip and
+     knee pivots. Where that is more than CLOTH_TURN_MAX / CLOTH_SHIFT_MAX, a static bone
+     with the NPC's own frame and place hangs under the joint, under a name made the same
+     way, and the cloth file names that bone instead (report["cloth joints"]). Below the
+     limits the joint is used as it is: that is young Zelda as child Link, as she passed in
+     game (1.5 degrees, 2 cm).
 World rest positions of all NPC bones are unchanged (but for those two pivots);
 check_rig() proves it per file.
 """
@@ -130,6 +143,9 @@ FACE_ROOT = "Face_Root"     # step 6: this bone and every Link bone below it,
 FACE_EXTRA = ("Ear_L", "Ear_R")     # and these
 FACE_RIGID_MAX = 3.0        # degrees a rigid face bone's frame may be off Link's
 SKIRT_TOP = "Ph_Skirt_1_"   # step 7: a skirt column starts at a bone of this name (+ the column's name)
+CLOTH_TURN_MAX = 2.0        # step 8, degrees: a joint of the cloth file turned further than this,
+CLOTH_SHIFT_MAX = 0.03      # or moved further than this (metres), gets a bone with its own frame
+CLOTH_LETTERS = "zyxwvutsrqponmlkjihgfedcba"
 EPS_POS = 1e-6              # metres
 EPS_ANGLE = 1e-3            # degrees
 
@@ -253,6 +269,18 @@ def skirt_map(npc, link):
     return out
 
 
+def _alias_free(n, used):
+    """A name as long as `n` that is not in `used`: one letter of `n` replaced, the last
+    letter of its first word first, then the others from the end."""
+    first = len(n.split("_")[0]) - 1
+    for pos in [first] + [k for k in range(len(n) - 1, -1, -1) if k != first and n[k].isalpha()]:
+        for c in CLOTH_LETTERS:
+            cand = n[:pos] + c + n[pos + 1:]
+            if cand != n and cand not in used:
+                return cand
+    raise AssertionError(("no free name for", n))
+
+
 def cloth_alias(names, link_names, taken):
     """{bone name: its name for step 8}: `names` = the NPC's cloth bones that are not joints."""
     def word(n):
@@ -266,15 +294,16 @@ def cloth_alias(names, link_names, taken):
     out = {}
     for n in sorted(names):
         w = word(n)
-        if n in link_names:
-            assert w in shared, ("a cloth bone with a name of Link's that cannot be renamed", n)
         if w in shared:
             out[n] = find(w) + n[len(w):]
             assert len(out[n]) == len(n) and out[n] not in taken, out[n]
     for w in {word(n) for n in out}:
         # nothing sorts between the old and the new word, so a sorted table stays sorted
         assert not any(w <= n < find(w) + "~" for n in names if n not in out), w
-    assert len(set(out.values())) == len(out)
+    for n in sorted(names):     # a name of Link's without such a word
+        if n in link_names and n not in out:
+            out[n] = _alias_free(n, set(taken) | set(names) | set(out.values()))
+    assert len(set(out.values())) == len(out) and not set(out.values()) & (set(taken) | set(names))
     return out
 
 
@@ -307,6 +336,7 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
     early = {}                      # Link bones the NPC lacks, added before the face bones under them
     hang = skirt_map(npc, link) if skirt else {}
     alias = {}
+    cloth_names = set(cloth or ()) & npc_names
     if cloth is not None:
         assert add_missing and not skirt
         alias = cloth_alias({n for n in cloth if n in npc_names and n not in joints and n != old[0].name},
@@ -324,7 +354,24 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
     # rigid shape hangs on, whose frame cannot change without touching vertices)
     # "follow": {helper name: metres between the NPC's bone and Link's roll axis}
     report = {"offsets": 0, "renamed": [], "turned": {}, "absolute": {}, "unbound": [], "fixed": [], "follow": {},
-              "not following": [], "legs": {}, "face": [], "face static": [], "skirt": {}, "cloth": alias}
+              "not following": [], "legs": {}, "face": [], "face static": [], "skirt": {}, "cloth": alias,
+              "cloth joints": {}, "skirt elsewhere": []}
+
+    def cloth_free(name):
+        return _alias_free(name, taken | cloth_names | set(alias.values()) | set(report["cloth joints"].values()))
+
+    def cloth_joint(i):
+        """Step 8, after a joint is placed: where its frame or place is no longer the NPC's
+        own, a static bone under it that has them, for the cloth file to name."""
+        k, b = remap[i], old[i]
+        if b.name not in cloth_names or (rotation_angle(w_new[k].r, w_old[i].r) <= CLOTH_TURN_MAX
+                                         and math.dist(w_new[k].t, w_old[i].t) <= CLOTH_SHIFT_MAX):
+            return
+        assert w_scale[k] == 1.0 and b.scale == (1.0, 1.0, 1.0), b.name
+        f = Bone(cloth_free(b.name), parent=k, flags=OFFSET_FLAGS)
+        f.set_local(w_new[k].inv() * w_old[i])
+        add(f, w_old[i])
+        report["cloth joints"][b.name] = f.name
 
     def add(bone, world, link_units=False):
         """world: rotation and place without scale. Under a scaled bone the translation is
@@ -374,11 +421,15 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
                 report["face static"].append(b.name)
                 joints.discard(b.name)
                 face_joints.discard(b.name)
+                if b.name in cloth_names:
+                    alias[b.name] = cloth_free(b.name)
         if b.name in joints and new[a_new].name != link_parent[b.name]:
             # the NPC hangs this joint somewhere else than Link does: Link's values would be
             # read in another frame, so leave it alone (it is renamed below)
             report["unbound"].append(b.name)
             joints.discard(b.name)
+            if b.name in cloth_names and b.name not in alias:
+                alias[b.name] = cloth_free(b.name)
         if b.name in joints:
             lb = link_by[b.name]
             assert b.scale == lb.scale == (1.0, 1.0, 1.0), ("scaled joint", b.name)
@@ -420,6 +471,7 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
                             report["absolute"][b.name] = round(angle, 1)
                         nb.set_local(rotate=matrix_euler(local_r), translate=reach)
                     remap[i] = anchor[i] = add(nb, Xf(target, pos), link_units=True)
+                    cloth_joint(i)
                     continue
             elif b.name in legs:
                 side, place = legs[b.name]
@@ -445,6 +497,7 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
                 if place == 0:
                     nb.flags &= ~FLAG_SSC
                 remap[i] = anchor[i] = add(nb, Xf(target, pos), link_units=True)
+                cloth_joint(i)
                 continue
             # offset bone: Link's parent frame, placed so that Link's offset lands on the NPC's joint
             reach = [x * w_scale[a_new] for x in lb.translate]
@@ -473,6 +526,7 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
                     report["absolute"][b.name] = round(angle, 1)
                 nb.set_local(rotate=matrix_euler(local_r), translate=lb.translate)
             remap[i] = anchor[i] = add(nb, Xf(target, pos), link_units=True)
+            cloth_joint(i)
             continue
         if b.name in hang:
             # Link's simulated bone first (and his bones above it that are not there yet), with
@@ -481,7 +535,15 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
             while q not in early and not any(x.name == q for x in new):
                 chain.append(q)
                 q = link_parent[q]
-                assert q is not None and q not in npc_names or any(x.name == q for x in new), (b.name, q)
+                if not (q is not None and q not in npc_names or any(x.name == q for x in new)):
+                    # the NPC hangs this column on a bone that comes before the one Link's
+                    # hangs on (adult Zelda: a belt on the chest, before the waist): it
+                    # stays where it is, a cloth bone like the others
+                    assert cloth is not None, (b.name, q)
+                    report["skirt elsewhere"].append(b.name)
+                    del hang[b.name]
+                    break
+        if b.name in hang:
             up = early[q] if q in early else next(k for k, x in enumerate(new) if x.name == q)
             for n in reversed(chain):
                 assert n not in npc_names or n in hang, n
@@ -513,10 +575,11 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
             # Link's driven helper first (his values, no weights), the NPC's bone under it
             lb = link_by[b.name]
             k = add(lb.copy(parent=a_new, smooth=-1, rigid=-1), w_helper, link_units=True)
-            nb = b.copy(parent=k, name=NPC_PREFIX + b.name)
+            nb = b.copy(parent=k, name=alias.get(b.name, NPC_PREFIX + b.name))
             assert nb.name not in taken, nb.name
             nb.set_local(w_helper.inv() * w_old[i])
-            report["renamed"].append(b.name)
+            if b.name not in alias:
+                report["renamed"].append(b.name)
             report["follow"][b.name] = round(_off_axis(w_helper, w_old[i].t), 5)
             remap[i] = add(nb, w_old[i])
             anchor[i] = a_new
@@ -562,7 +625,7 @@ def _skin_error(xf):
 
 
 def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), legs=(), face=(), skirt=(),
-              cloth=()):
+              cloth=(), cloth_joints=()):
     """Independent check of a rigged model against the original (both bfres.Model, the
     rigged one parsed again from the written file; `fixed` = report["fixed"] of
     player_rig; complete=False for a rig made with add_missing=False; `follow` =
@@ -669,7 +732,8 @@ def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), le
     old_index = {b.name: i for i, b in enumerate(old)}
     for name, reported in sorted(dict(follow).items()):
         k, i = index[name], old_index[name]
-        assert k not in kept and new[back[i]].name == NPC_PREFIX + name and new[back[i]].parent == k, ("not following", name)
+        assert k not in kept and new[back[i]].name == cloth.get(name, NPC_PREFIX + name) and new[back[i]].parent == k, \
+            ("not following", name)
         off = _off_axis(Xf(_unit(w_new[k]), w_new[k].t), w_new[back[i]].t)
         assert abs(off - reported) < tol, ("off axis", name, off, reported)
         below, stack = set(), [i]
@@ -761,4 +825,17 @@ def check_rig(before, after, link, fixed, tol=2e-4, complete=True, follow=(), le
             e = _skin_error(_inv(want) * move if back[j] in under else move)
             assert e < tol, ("skirt move of", target, "moves", b.name, e)
             worst = max(worst, e)
+    # 7. the cloth joints of step 8: under each such joint a bone of a new name, without
+    #    weights or children, that has the frame and the place the NPC's joint had; the
+    #    joint itself is turned or moved by more than the limits (else the bone is not made)
+    for name, other in sorted(dict(cloth_joints).items()):
+        i, k = old_index[name], index[other]
+        assert other not in link_by and other not in old_index and len(other) == len(name), other
+        assert k not in kept and new[k].parent == back[i] and new[back[i]].name == name, other
+        assert (new[k].smooth, new[k].rigid, new[k].scale) == (-1, -1, (1.0, 1.0, 1.0)), other
+        assert not any(b.parent == k for b in new), other
+        assert rotation_angle(w_old[i].r, _unit(w_new[k])) < 1e-2, ("frame", other)
+        assert max(abs(x - y) for x, y in zip(w_old[i].t, w_new[k].t)) < tol, ("place", other)
+        assert (rotation_angle(w_old[i].r, _unit(w_new[back[i]])) > CLOTH_TURN_MAX - 1e-2
+                or math.dist(w_old[i].t, w_new[back[i]].t) > CLOTH_SHIFT_MAX - tol), ("not needed", other)
     return worst

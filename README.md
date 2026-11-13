@@ -8,13 +8,13 @@ A full character select for *The Legend of Zelda: Ocarina of Time* on Switch 2: 
 
 Not affiliated with or endorsed by Nintendo. No game files are included; you need your own copy of the game. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 
-**Status:** early test version (v0.1.2). Back up your save before trying it.
+**Status:** early test version (v0.1.3). Back up your save before trying it.
 
 ## Install
 
 1. Download one of the two zips (pick one):
-   - **[v0.1.2-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.2/OoT-Character-Select-v0.1.2-lite.zip)**: 21 characters, 171 MB.
-   - **[v0.1.2](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.2/OoT-Character-Select-v0.1.2.zip)**: all 99 characters, 361 MB.
+   - **[v0.1.3-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3-lite.zip)**: 21 characters, 171 MB.
+   - **[v0.1.2](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.2/OoT-Character-Select-v0.1.2.zip)**: all 99 characters, 361 MB. On an emulator it plays the same as v0.1.3; the full v0.1.3 package follows.
 2. In your emulator's game list, right-click the game and choose "Open Mod Data Location".
 3. Copy the folder `OoT Character Select` from the zip's `mods` folder into it, and start the game.
 
@@ -24,7 +24,7 @@ What you need:
 
 - **The game's 1.1.1 update**, the current one. Some emulators list the same update as 2.0.0 or v131072; that is fine, it is the same game data. The mod's code patch only applies to this update, so on any other it simply does nothing.
 - **A Switch 2 emulator that loads mod folders** (romfs files and IPS patches). Made and tested on Lichii and Fritchii.
-- **The PC recompilations (Hookshot, NX2Navi) are not supported yet.** The mod patches the game's original code, which those builds do not run, so it has not been tried there. A port is not ruled out.
+- **Longshot and Hookshot (the native PC builds): not for ordinary installs yet.** They compile the game's code ahead of time and leave a mod's code patch out, so the mod does nothing there today. It does run on a Longshot built with code mod support, which is still a pull request there ([Longshot 134](https://git.magicbean.dev/MagicBeanDev/Longshot/pulls/134)): played that way on Windows, with v0.1.3. Once that support is in a Longshot release, the mod folder goes into Longshot's `mods` folder and the game is built again. NX2Navi has not been tried.
 
 Did it run for you, or not? Please [open an issue](https://github.com/snaildev99/OoT-Character-Select/issues) with your emulator, its version and which zip you used. For how a character looks or moves, check the known issues below first.
 
@@ -59,6 +59,7 @@ Planned:
 
 ## Good to know
 
+- **Fixed in v0.1.3: a crash on Longshot and Hookshot builds with code mods.** One of the mod's code routines was written in a way the console and the emulators accept and those builds do not; picking a character crashed there. On an emulator nothing changes from v0.1.2.
 - **Fixed in v0.1.2: the adult did not load.** In v0.1.1, going through the Door of Time ended on a loading screen that never finished. If you have v0.1.1, replace the folder with the new one.
 - **Button prompt mods conflict.** They replace the same texture file, so use either one of those or this mod.
 - **Names.** Most of the generic NPCs are still listed under their file names.
@@ -83,6 +84,7 @@ The packages are the files on this repository's [releases page](https://github.c
 
 | Package | SHA-256 |
 | --- | --- |
+| `OoT-Character-Select-v0.1.3-lite.zip` | `ff60cd9bd4f7c5ca1cdbfbb2242fd8fd2dfa08e221e856dd1c2c65d64dd2d5e1` |
 | `OoT-Character-Select-v0.1.2-lite.zip` | `45bf99f916218098713576e087c5725a19d69090ca01c76de8da41db4a2aac5b` |
 | `OoT-Character-Select-v0.1.2.zip` (all 99 characters) | `be1faf4b95e21e88c78407bc50271683fb027bdf6ec5247de4e456ed0a4a9769` |
 | `OoT-Character-Select-v0.1.1-lite.zip` | `4188673d5edd9b8afb6cac2ff75e988095e7eb9966a591d76265ba6b00e3833d` |

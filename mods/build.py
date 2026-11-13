@@ -1770,7 +1770,15 @@ def keep_camera_hook(p):
     gamedata_subs(p)
     s0, s1 = MENU_SLOT, MENU_SLOT + MENU_SLOT_SIZE * STASH_SLOT
     with p.extra():
-        # entered with bl; ends with an explicit branch back, so x30 is free
+        # Entered with a plain b in place of the game's call and left with an explicit
+        # branch back; x30 is free (the replaced instruction was a call, the function has
+        # its return address in its frame). NOT entered with bl (it was, until 2026-11-12):
+        # a routine that is called and then jumps back into the middle of the calling
+        # function is the same thing on the console, but Hookshot's translator makes bl a
+        # C call and ret a C return, so the rest of "delete the menu Link" ran inside the
+        # call, returned to the call site and ran a second time (its frame popped twice:
+        # a crash in the caller with x19 and x30 zero, on the first A in the picker).
+        # README, "Hookshot and the multiplayer mod", has the rule.
         p.cave("stash_slot", """
             {mgr}
             {h_slide}
@@ -1864,7 +1872,7 @@ def keep_camera_hook(p):
         """.format(mgr=_mgr_asm("ks_set"), h_slide=_hash_asm(SLIDE_FLAG), gd_int=p.symbols["gd_int"],
                    done=CREATE_SHADOW_DONE, next=CREATE_SHADOW + 4))
     p.asm(CREATE_SHADOW, "b {keep_shadow}", expect="adrp x8, #0x84eb5000")
-    p.asm(DELETE_POUCH_SLOT_CALL, "bl {stash_slot}", expect="bl #%#x" % MENU_DELETE_SLOT)
+    p.asm(DELETE_POUCH_SLOT_CALL, "b {stash_slot}", expect="bl #%#x" % MENU_DELETE_SLOT)
     p.asm(DELETE_POUCH_CAMERA_CHECK, "b {keep_camera}", expect="add x0, x19, #0x10")
 
 

@@ -26,6 +26,16 @@ REQUIREMENTS = ["ainb==0.2.17", "astc-encoder-py==0.1.12", "capstone==5.0.9", "k
 GITIGNORE = ["__pycache__/", "venv*/", "build*/", "dist/", "assets/", "research/", ".vscode/"]
 
 
+def public_notes(text):
+    """The README without its lines between a "private" and a "/private" HTML comment: what
+    other people said in chats, and matters of this PC, are not ours to publish."""
+    start, end = "<!-- private -->", "<!-- /private -->"
+    assert text.count(start) == text.count(end)
+    text = re.sub(re.escape(start) + r".*?" + re.escape(end) + r"\r?\n?", "", text, flags=re.S)
+    assert "private -->" not in text
+    return text
+
+
 def scrub(text):
     text = re.sub(r"C:[\\/]+Users[\\/]+%s" % PRIVATE_NAME, "%USERPROFILE%", text)
     return text.replace(PRIVATE_NAME, HANDLE)
@@ -55,6 +65,7 @@ def main():
         else:
             files[name] = path
     out ={rel: scrub(open(src, encoding="utf-8").read()) for rel, src in files.items()}
+    out["docs/NOTES.md"] = public_notes(out["docs/NOTES.md"])
     out["requirements.txt"] = "\n".join(REQUIREMENTS) + "\n"
     out[".gitignore"] = "\n".join(GITIGNORE) + "\n"
     for rel, text in out.items():

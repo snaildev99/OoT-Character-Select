@@ -2,17 +2,17 @@
 
 A full character select for *The Legend of Zelda: Ocarina of Time* on Switch 2: a new **Characters** page in the − menu where you pick who you play as, see them live, and swap in the field without a reload.
 
-**[Watch the demo video](https://vimeo.com/1246160686)** (2:45) · **[Download the latest release](https://github.com/snaildev99/OoT-Character-Select/releases/latest)**
+**[Watch the demo video](https://vimeo.com/1246160686)** (2:45) · **[Download the mod](https://github.com/snaildev99/OoT-Character-Select/releases/latest)**
 
 [![Saria as the player; opens the demo video](docs/images/saria-1.jpg)](https://vimeo.com/1246160686)
 
-Not affiliated with or endorsed by Nintendo. No game files are included; you need your own copy of the game. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
+Not affiliated with or endorsed by Nintendo. This is a mod, not the game: you need your own copy of the game, and the mod does nothing without it. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 
 **Status:** early test version (v0.1.3). Back up your save before trying it.
 
 ## Install
 
-1. Download one of the two zips (pick one):
+1. Download the mod (pick one):
    - **[v0.1.3-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3-lite.zip)**: 21 characters, 171 MB.
    - **[v0.1.3](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3.zip)**: all 99 characters, 361 MB.
 2. In your emulator's game list, right-click the game and choose "Open Mod Data Location".
@@ -78,9 +78,9 @@ Planned:
 
 ## Is it safe to install?
 
-A mod package from this project holds data files only: changed or added game files (`.zs`, `.ainb`, `.bwav`, `.bphcl`) and one small patch file for the game's own code (`.ips`), which runs inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If a package claiming to be this mod contains anything else, do not use it.
+The mod is data only. It holds what it adds to the game: the Characters page and its menu tab, the picker with a portrait for each character, the characters set up as playable models, two characters' voices, and one small code patch (`.ips`) that runs inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If something claiming to be this mod contains anything else, do not use it.
 
-The packages are the files on this repository's [releases page](https://github.com/snaildev99/OoT-Character-Select/releases). The SHA-256 sum of each zip:
+The mod is downloaded from this repository's [downloads page](https://github.com/snaildev99/OoT-Character-Select/releases). The SHA-256 sum of each zip:
 
 | Package | SHA-256 |
 | --- | --- |
@@ -94,7 +94,7 @@ The packages are the files on this repository's [releases page](https://github.c
 
 Check a zip you got from anywhere else with `certutil -hashfile <zip> SHA256` (Windows) before using it.
 
-Each package comes with `SHA256SUMS.txt` (the sum of every file) and `patch-listings` (the code patch as readable assembly, written by the same build that made the patch). The build is deterministic: the same sources and the same game files give the same bytes, so a package can be rebuilt from this repository and compared. `tools/package.py` makes the package and refuses any file type other than the data files above.
+Each package comes with `SHA256SUMS.txt` (the sum of every file) and `patch-listings` (the code patch as readable assembly, written by the same build that made the patch). The build is deterministic: the same sources and the same game files give the same bytes, so a package can be rebuilt from this repository and compared. `tools/package.py` makes the package and refuses anything that is not mod data.
 
 ## Credits and AI use
 
@@ -118,7 +118,7 @@ set OOT_IMAGE=C:\path\to\image.bin
 venv\Scripts\python mods\build.py
 ```
 
-The build writes several working folders to `build\` (the 21 characters of the lite release; `--full` builds all 99). `--install` also copies them into the emulator's mods folder (`%APPDATA%\lichii\load\0400486024DEC000`; set `OOT_MODS_APP=eden` for an emulator that uses `%APPDATA%\eden`). `tools\package.py` merges the working folders into the one folder of a release. The voices folder is built apart by `mods\voices.py`, which needs a voice conversion setup of its own (`docs/NOTES.md`, voices section).
+The build writes several working folders to `build\` (the 21 characters of the lite version; `--full` builds all 99). `--install` also copies them into the emulator's mods folder (`%APPDATA%\lichii\load\0400486024DEC000`; set `OOT_MODS_APP=eden` for an emulator that uses `%APPDATA%\eden`). `tools\package.py` merges the working folders into the one mod folder. The voices folder is built apart by `mods\voices.py`, which needs a voice conversion setup of its own (`docs/NOTES.md`, voices section).
 
 Two inputs are not in this repository, and the full build currently expects both:
 

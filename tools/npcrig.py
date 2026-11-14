@@ -111,6 +111,11 @@ What player_rig() builds, per NPC and per Link age:
      way, and the cloth file names that bone instead (report["cloth joints"]). Below the
      limits the joint is used as it is: that is young Zelda as child Link, as she passed in
      game (1.5 degrees, 2 cm).
+   - tops=SKIRT_TOP_ADULT (an experiment, 2026-11-13): adult Link's tunic skirt has the
+     same twelve columns under another name (Ph_SkirtAdult_1..4_<column>), so as adult
+     Link no dress top found a bone of Link's to hang from and the dress hung from the
+     waist alone. With it a top hangs under adult Link's top of the same column; it keeps
+     its own name (adult Link has no bone of it).
 World rest positions of all NPC bones are unchanged (but for those two pivots);
 check_rig() proves it per file.
 """
@@ -143,6 +148,7 @@ FACE_ROOT = "Face_Root"     # step 6: this bone and every Link bone below it,
 FACE_EXTRA = ("Ear_L", "Ear_R")     # and these
 FACE_RIGID_MAX = 3.0        # degrees a rigid face bone's frame may be off Link's
 SKIRT_TOP = "Ph_Skirt_1_"   # step 7: a skirt column starts at a bone of this name (+ the column's name)
+SKIRT_TOP_ADULT = "Ph_SkirtAdult_1_"    # adult Link's name for the same twelve columns (step 8, tops=)
 CLOTH_TURN_MAX = 2.0        # step 8, degrees: a joint of the cloth file turned further than this,
 CLOTH_SHIFT_MAX = 0.03      # or moved further than this (metres), gets a bone with its own frame
 CLOTH_LETTERS = "zyxwvutsrqponmlkjihgfedcba"
@@ -308,7 +314,7 @@ def cloth_alias(names, link_names, taken):
 
 
 def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, legs_mode=None, face=False,
-               skirt=False, cloth=None):
+               skirt=False, cloth=None, tops=None):
     """npc, link: bfres.Model. Returns (new bones, remap old->new index,
     {smooth matrix index: new inverse bind Xf}, report dict).
     add_missing=False leaves steps 3 and 4 out (an experiment: fewer bones than Link has);
@@ -342,6 +348,10 @@ def player_rig(npc, link, absolute=ABSOLUTE, add_missing=True, follow=FOLLOW, le
         alias = cloth_alias({n for n in cloth if n in npc_names and n not in joints and n != old[0].name},
                             set(link_by), taken)
         hang = {n: n for n in alias if n.startswith(SKIRT_TOP) and n in link_by}
+        for n in sorted(cloth_names) if tops else ():
+            other = tops + n[len(SKIRT_TOP):]
+            if n.startswith(SKIRT_TOP) and n not in hang and n not in joints and n not in link_by and other in link_by:
+                hang[n] = other
     assert add_missing or not hang
 
     new, w_new, remap = [], [], [None] * len(old)

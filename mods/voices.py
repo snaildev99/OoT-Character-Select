@@ -62,6 +62,11 @@ BANK = "Player_Child"
 VOICES = {
     "Custom_Saria": ("Sa", ["Saria"]),
     "Custom_Zelda_Child": ("Zc", ["Zelda (child)"]),
+    "Custom_Ruto_Child": ("Rc", ["Ruto (child)"]),
+    "Malon_Child": ("Mc", ["Malon (child)"]),
+    "Malon_Adult": ("Ma", ["Malon"]),
+    "Kokiri_Girl_Spry": ("Ks", ["Fado", "Kokiri_WC_002"]),      # a shared type: both models have only it
+    "Mido": ("Mi", ["Mido"]),
 }
 MOD = "Character (voice test)"      # "(" sorts before every letter: its size table is the one taken
 ARCHIVE = "PlayerVoice_Child_%s.bars"
@@ -231,6 +236,8 @@ def convert(voice, redo=False, more=0):
     report["tries"] = seed0 - 1337 + tries
     # as much of the voice as fits beside a row (Saria has 21.7 s in all: unchanged by the limit)
     ref, rate, used = voiceai.reference(voice, seconds=30 - ROW - 0.6)
+    if len(ref) / rate + ROW + 0.5 > 30:        # the last clip's gap went over (Malon_Adult)
+        ref, rate, used = voiceai.reference(voice, seconds=30 - ROW - 0.75)
     work = os.path.join(ROOT, "build-voice", "ai", "work", voice)
     os.makedirs(work, exist_ok=True)
     ref_path = os.path.join(work, "reference.wav")

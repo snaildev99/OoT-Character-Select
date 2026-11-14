@@ -197,7 +197,60 @@ CLOTH_KEEP = {"Enemy_MiddleBoss_DarkLink": ("Enemy_MiddleBoss_DarkLink", "Player
 CLOTH_DEAD_NODE = "SeqOneShotLuaScript"
 CLOTH_DEAD = (0x832f7090, 0x832f725c)
 CLOTH_DEAD_SHA1 = "84c10ccbc5a758487d974ef7240a82ec157b7c98"    # its bytes in game v1.1.1
-EXTRA_MODS = [DRESS_TEST_MOD, CLOTH_TEST_MOD]   # folders build_mods() makes besides MOD; the caller installs them too
+# Three experiments on top of the cloth folder (2026-11-13, after it passed in game for both
+# ages; snaildev: the legs come through the dresses while running and with the sword drawn, and
+# after young Zelda is picked on the page her dress stays flung around a leg). Each is an
+# override folder of its own that sorts before the cloth folder, so each can be switched off
+# alone in the Add-Ons list; README, NPC section, "Dresses and the legs".
+# 1. More room for a dress to follow the legs. A mesh's ClothParam entry says how far the
+#    cloth may leave the shape the bones give it (localRange_maximumDistance) and how far
+#    it keeps from the collision shapes (simulation_particleRadius). The NPCs' dresses are
+#    set for NPCs' steps (young Zelda's 15 and 12, adult Zelda's 30 and 8; her own second
+#    mesh for running, Skirt_Run, has 45 and 10); Link's stance is far wider. This folder
+#    has the four packs of the cloth folder again with those two numbers raised for the
+#    skirt and dress meshes of the women and girls (CLOTH_FIT_*); nothing else differs.
+CLOTH_FIT_MOD = "Character cloth (fit test)"
+CLOTH_FIT_WHO = r"Npc_(Hylia|Kokiri)_W"     # the models, by name: Hylian women and Kokiri girls
+CLOTH_FIT_MESH = r"Skirt|Dress"             # their meshes, by the NPC's own name for them
+CLOTH_FIT_RANGE = (3.0, 60.0)       # localRange_maximumDistance: this many times the NPC's, at most this, never less than the NPC's
+CLOTH_FIT_RADIUS = 1.5              # simulation_particleRadius: times this,
+# and for a long skirt (one whose room was this or more: the dresses have 15 to 31, the
+# tunic skirts 5 to 6.5) times this and at least this. First round (snaildev, 2026-11-13, with
+# times 1.5 for all): young Zelda's knees "improved" but still through the front a little,
+# her dress still behind the front leg in the sword stance; the adults' "roughly the same".
+# A dress is moved by twelve columns of bones, about a hand apart at knee height; a leg's
+# collision shape that passes between two columns pushes neither unless shape and distance
+# kept together reach them, and a leg that moves further in a frame than they are thick
+# goes through. So the distance kept is what lets a leg carry a dress.
+CLOTH_FIT_LONG = (12.0, 3.5, 40.0)
+# 2. As adult Link the dress tops hang from his skirt (npcrig step 8, tops=): the adult
+#    models of the 44 characters that have such tops, in place of the cloth folder's.
+CLOTH_SKIRT_MOD = "Character cloth (adult skirt test)"
+# 3. The slide and the cloth. The page's slide moves a character with the game's setter
+#    build.ACTOR_SET_POS(actor, &position, 1). Its third argument says "do not warp": with 0
+#    (29 of the game's 32 calls) the setter's helper 0x804e6630 also asks the actor's cloth
+#    to warp, a bit in the cloth part of its physics; with 1 (the menu's rotate node, an
+#    NPC showing an item, one more) the cloth feels the move. The slide is 1.6 m in a third
+#    of a second: a dress is left behind as far as its settings allow, the leading leg
+#    passes through it, and it stays caught around that leg. This folder is a code patch
+#    alone: in the setter, a call with "do not warp" while a slide is on (build.SLIDE_FLAG
+#    is not 0) asks for a cloth warp. Nothing else changes: the game's own three callers
+#    outside a slide, the actor's position, its other physics.
+#    WHICH warp (the cloth update, 0x801666f8 on): the request byte's low bits are a mode.
+#    Without one (what the game's setter asks for) the game chooses, and for a move like
+#    this it resets the cloth and runs its settling steps again (0x80b2f860 with 1):
+#    asked on every frame of a slide that froze the cloth and made the game lag badly
+#    (snaildev, 2026-11-13, the first cut of this patch; the leg was cured). Mode 0 (bit 0)
+#    skips the reset and only carries the cloth along with the actor: that is asked now.
+#    The hook is in the one-shot body of a sequence node class nothing uses (as the cloth
+#    hook, check_unused_node); keep other patches off it and off CLOTH_WARP_SITE.
+CLOTH_WARP_MOD = "Character cloth (slide test)"
+CLOTH_WARP_SITE = 0x80964e98        # in the setter: "cbz x8, #0x80964ed4" (x8 = [actor + 0x270]; x19 actor, w20 the third argument)
+CLOTH_WARP_NODE = "SeqOneShotSetLODJudgeLayer"
+CLOTH_WARP_DEAD = (0x83304c20, 0x83304cf0)      # its body and the 12 bytes of padding after it
+CLOTH_WARP_SHA1 = "1ffb80de3d6fa1f8dbba0d87e2701cd1779722e4"    # their bytes in game v1.1.1
+# folders build_mods() makes besides MOD, in this order; the caller installs them too
+EXTRA_MODS = [DRESS_TEST_MOD, CLOTH_TEST_MOD, CLOTH_FIT_MOD, CLOTH_SKIRT_MOD, CLOTH_WARP_MOD]
 
 HAIR_MATERIAL = "Mt_Hairs"
 HAIR_STAND_INS = ("Mt_Hair", "Mt_Teeth", "Mt_Item_DekuStick")
@@ -348,7 +401,7 @@ def cloth_names(stem):
     return sorted(set(cloth_file(stem)[1]) | {m["BaseBone"] for m in cloth_source(stem)["meshes"]})
 
 
-def rigged(stem, age, mode="full", legs=None, face=False, skirt=False, cloth=False):
+def rigged(stem, age, mode="full", legs=None, face=False, skirt=False, cloth=False, tops=False):
     """The NPC model as a player model: (compressed bytes, decompressed size, growth in
     bytes, report). Modes: full (the real thing), lean, raw (EXPERIMENTS); legs = npcrig's
     legs_mode, face = its step 6, skirt = its step 7 (the dress test), cloth = its step 8 (the cloth test). Every result is parsed again and checked against the stock
@@ -361,7 +414,7 @@ def rigged(stem, age, mode="full", legs=None, face=False, skirt=False, cloth=Fal
                                 + ([b"legs " + legs.encode()] if legs else [])
                                 + ([b"face"] if face else []) + ([b"skirt"] if skirt else [])
                                 + ([b"cloth " + hashlib.sha1("\n".join(cloth_names(stem)).encode()).hexdigest().encode()]
-                                   if cloth else []))).hexdigest()
+                                   if cloth else []) + ([b"tops"] if tops else []))).hexdigest()
     path = os.path.join(CACHE, key)
     if os.path.exists(path + ".zs") and os.path.exists(path + ".json"):
         info = json.load(open(path + ".json"))
@@ -374,7 +427,8 @@ def rigged(stem, age, mode="full", legs=None, face=False, skirt=False, cloth=Fal
     if mode != "raw":
         bones, remap, inverse, report = npcrig.player_rig(m, link, add_missing=(mode == "full"),
                                                           legs_mode=legs, face=face, skirt=skirt,
-                                                          cloth=cloth_names(stem) if cloth else None)
+                                                          cloth=cloth_names(stem) if cloth else None,
+                                                          tops=npcrig.SKIRT_TOP_ADULT if tops else None)
         assert not legs or set(report["legs"]) == (set() if stem in LEGS_AS_THEY_ARE else set(npcrig.SIDES)), \
             (stem, "legs", report["legs"])
         missing = [n for n in npcrig.CORE if n != "Root" and n not in report["joints"]]
@@ -605,21 +659,32 @@ def _said(v):
     return "%s %r" % (type(v).__name__, v)
 
 
+_cloth_entries = {}     # age -> {a mesh's name in the settings: [(model, the NPC's own name for it)]}, by cloth_all
+
+
+def cloth_todo():
+    """[(NPC number, model)]: every character with a cloth file whose models MOD has (the
+    lite build leaves models out), in the order their settings are made."""
+    def shipped(rel):
+        return os.path.exists(os.path.join(build.BUILD, MOD, "romfs", *rel.split("/")))
+    todo = [(number, c["stem"]) for number, c in enumerate(characters())
+            if cloth_source(c["stem"]) and all(shipped(MODEL_FILE % (age, number, age)) for age in AGES)]
+    todo.sort(key=lambda t: (t[1] not in CLOTH_FIRST, t[0]))
+    own = len(build.CHARACTERS)
+    assert todo and all(ring()[own + number] == characters()[number]["label"] for number, _ in todo)
+    return todo
+
+
 def cloth_all(mod):
     """The folder CLOTH_TEST_MOD (see the constants). Returns lines for the build's output."""
     import collections
     assert mod < DRESS_TEST_MOD < MOD and mod < min(build.MODS), "the test folder must sort before the folders it overrides"
-    stems = [c["stem"] for c in characters()]
     own = len(build.CHARACTERS)
     stock = build.stock_table()
 
     def shipped(rel):
         return os.path.exists(os.path.join(build.BUILD, MOD, "romfs", *rel.split("/")))
-    # every character with a cloth file whose models MOD has (the lite build leaves models out)
-    todo = [(number, stem) for number, stem in enumerate(stems)
-            if cloth_source(stem) and all(shipped(MODEL_FILE % (age, number, age)) for age in AGES)]
-    todo.sort(key=lambda t: (t[1] not in CLOTH_FIRST, t[0]))
-    assert todo and all(ring()[own + number] == characters()[number]["label"] for number, _ in todo)
+    todo = cloth_todo()
     notes = []
     extra = {}      # the reaction and option files the characters' settings name: {name in a pack: bytes}
     lists = {}      # age -> what its settings get: (meshes, collision shapes, reactions, options)
@@ -631,6 +696,7 @@ def cloth_all(mod):
         shared = {m["Name"]: None for m in link_param["MeshList"]}      # mesh name -> what its entry says (None: Link's own)
         shapes = {c["Name"]: c for c in link_param["CollidableList"]}
         meshes, collidables, reactions, options = lists[age] = [], [], [], []
+        owners = _cloth_entries[age] = {}
         count = collections.Counter()
         for number, stem in todo:
             src = cloth_source(stem)
@@ -666,6 +732,7 @@ def cloth_all(mod):
                 else:
                     raise AssertionError(("no name left for the mesh", stem, m["Name"]))
                 mesh_names[m["Name"]] = cand
+                owners.setdefault(cand, []).append((stem, m["Name"]))
                 count["meshes"] += 1
                 count["renamed"] += cand != m["Name"]
                 if cand in shared:
@@ -800,6 +867,316 @@ def cloth_all(mod):
     notes.append("cloth hook: %d characters, %d runs emulated; %d bytes of %d in %s's body" % (
         len(numbers), check_cloth_hook(p, numbers), p.cave_ptr - CLOTH_DEAD[0], CLOTH_DEAD[1] - CLOTH_DEAD[0], CLOTH_DEAD_NODE))
     return notes
+
+
+def cloth_fit(mod):
+    """The folder CLOTH_FIT_MOD (see the constants): the cloth folder's four packs with more
+    room in the settings of the dresses. Returns lines for the build's output."""
+    assert mod < CLOTH_TEST_MOD and _cloth_entries, "after the cloth folder, and before it by name"
+    notes, said = [], {}
+    for pack in sorted({p for age in AGES for p in RETARGET_PACKS[age][1]}):
+        rel = "Pack/Actor/%s.pack.zs" % pack
+        raw = open(os.path.join(build.BUILD, CLOTH_TEST_MOD, "romfs", *rel.split("/")), "rb").read()
+        stock_raw = open(os.path.join(nxfmt.ROMFS, rel), "rb").read()
+        data = nxfmt.unzs(raw, rel)
+        files = nxfmt.sarc_files(data)
+        changes = {}
+        for age in AGES:
+            k = CLOTH_PARAM % ("Player_" + age)
+            if k not in files:
+                continue
+            old = bytes(files[k])
+            param = byml.load(old)
+            assert byml.dump(param, byml.version_of(old)) == old, k
+            meshes, lines = [], []
+            for m in param["MeshList"]:
+                owners = _cloth_entries[age].get(m["Name"], [])
+                fit = [o for o in owners if re.match(CLOTH_FIT_WHO, o[0].split(".")[1]) and re.search(CLOTH_FIT_MESH, o[1])]
+                if fit and "ParamCoefDict" in m:
+                    # (an entry is shared by meshes of one name with the same settings: one of
+                    # another model that shares it gets the same room)
+                    coef = dict(m["ParamCoefDict"])
+                    was = (coef.get("localRange_maximumDistance"), coef.get("simulation_particleRadius"))
+                    def f32(x):         # as the file keeps it
+                        return struct.unpack("<f", struct.pack("<f", x))[0]
+                    if was[0] is not None:
+                        coef["localRange_maximumDistance"] = type(was[0])(f32(max(was[0], min(was[0] * CLOTH_FIT_RANGE[0], CLOTH_FIT_RANGE[1]))))
+                    if was[1] is not None:
+                        long = was[0] is not None and was[0] >= CLOTH_FIT_LONG[0]
+                        coef["simulation_particleRadius"] = type(was[1])(f32(
+                            max(was[1] * CLOTH_FIT_LONG[1], CLOTH_FIT_LONG[2]) if long else was[1] * CLOTH_FIT_RADIUS))
+                    lines.append((sorted({o[0].split(".")[1][len("Npc_"):] for o in owners}), m["Name"], was,
+                                  (coef.get("localRange_maximumDistance"), coef.get("simulation_particleRadius"))))
+                    m = dict(m, ParamCoefDict=coef)
+                meshes.append(m)
+            assert lines, age
+            new = dict(param, MeshList=meshes)
+            changes[k] = byml.dump(new, byml.version_of(old))
+            # (a file's size can change by a little: it keeps equal entries once)
+            assert byml.load(changes[k]) == new and abs(len(changes[k]) - len(old)) < 4096, (k, len(changes[k]), len(old))
+            assert said.setdefault(age, lines) == lines, "the packs' copies of the settings differ"
+        out = nxpack.sarc_replace(data, changes)
+        got = nxfmt.sarc_files(out)
+        assert all(bytes(got[k]) == (changes[k] if k in changes else bytes(v)) for k, v in files.items()) and len(got) == len(files)
+        assert not any(a % 8 for _, a, _ in nxfmt.sarc_entries(out))
+        build.write(mod, rel, nxpack.zs_compress_like(out, stock_raw), len(out), build.SIZES)
+        for k in changes:       # the cloth folder's entry for it has room for this
+            assert build.SIZES[k] >= build.stock_table().get(k) + 4 * (len(changes[k]) - len(nxfmt.sarc_files(nxfmt.unzs(stock_raw, rel))[k])), k
+    for age in AGES:
+        lines = said[age]
+        notes.append("as %s Link: %d settings entries of %d characters' skirts and dresses" % (
+            age.lower(), len(lines), len({w for who, _, _, _ in lines for w in who})))
+        for who, name, was, now in lines:
+            if any(w in ("Hylia_WU_Zelda_Child", "Hylia_WU_Zelda_Adult", "Hylia_WC_Malon_Child", "Hylia_WN_Malon_Adult") for w in who):
+                notes.append("  %s %s: room %g -> %g, distance kept %g -> %g" % (
+                    ", ".join(who), name, was[0] if was[0] is not None else -1, now[0] if now[0] is not None else -1,
+                    was[1] if was[1] is not None else -1, now[1] if now[1] is not None else -1))
+    return notes
+
+
+def cloth_adult_skirt(mod):
+    """The folder CLOTH_SKIRT_MOD (see the constants): the adult models whose dress tops can
+    hang from adult Link's skirt. Returns lines for the build's output."""
+    assert mod < CLOTH_TEST_MOD, "before the cloth folder by name"
+    age, notes, count, far = "Adult", [], 0, (0.0, None)
+    for number, stem in cloth_todo():
+        base = rigged(stem, age, "full", legs=LEGS, face=FACE, cloth=True)
+        zs, size, growth, report = rigged(stem, age, "full", legs=LEGS, face=FACE, cloth=True, tops=True)
+        if not report["skirt"]:
+            assert zs == base[0], stem
+            continue
+        # only where the tops hang differs: the cloth file and the settings of the cloth folder fit this model too
+        assert not base[3]["skirt"] and all(report[k] == base[3][k] for k in ("cloth", "cloth joints", "joints")), stem
+        model = bfres.Fres(nxfmt.unzs(zs, stem)).model()
+        assert sorted(b.name for b in model.bones) == sorted(b.name for b in bfres.Fres(nxfmt.unzs(base[0], stem)).model().bones), stem
+        need = pre_actor_need(model)
+        assert need < min(pre for _, pre in HEAPS.values()), (stem, need)
+        build.write(mod, MODEL_FILE % (age, number, age), zs, size, build.SIZES, size=model_size_entry(stem, growth))
+        count += 1
+        far = max(far, (max(d for _, d in report["skirt"].values()), stem.split(".")[1]))
+    notes.append("%d adult models: their dress tops hang from adult Link's skirt tops (at most %.0f mm from his bone, %s)" % (
+        count, far[0] * 1000, far[1]))
+    return notes
+
+
+CLOTH_WARP_HOOK = """
+        tbz w20, #0, cw_out
+        cbz x8, cw_out
+        ldr x9, [x8, #0x50]
+        cbz x9, cw_out
+        ldr x9, [x9, #0x20]
+        cbz x9, cw_out
+        ldr x9, [x9, #0x1c8]
+        cbz x9, cw_out
+        adrp x10, #{got_page:#x}
+        ldr x10, [x10, #{got_off:#x}]
+        ldr x10, [x10]
+        cbz x10, cw_out
+        ldr x11, [x10, #0xe0]
+        cbz x11, cw_out
+        ldr w12, [x10, #0xec]
+        cbz w12, cw_out
+        movz w13, #{hlo:#x}
+        movk w13, #{hhi:#x}, lsl #16
+        udiv w14, w13, w12
+        msub w14, w14, w12, w13
+        mov w15, w14
+    cw_probe:
+        add x16, x11, w15, uxtw #3
+        ldr w17, [x16]
+        cmp w17, w13
+        b.eq cw_found
+        cbz w17, cw_out
+        add w15, w15, #1
+        cmp w15, w12
+        csel w15, wzr, w15, hs
+        cmp w15, w14
+        b.ne cw_probe
+        b cw_out
+    cw_found:
+        ldr w16, [x16, #4]
+        ldr w17, [x10, #0xd0]
+        cmp w16, w17
+        b.hs cw_out
+        ldr x17, [x10, #0xd8]
+        mov w15, #0x28
+        umaddl x17, w16, w15, x17
+        ldr w16, [x17, #0x1c]
+        cbz w16, cw_out
+        ldrb w10, [x9, #0x1f2]
+        tbnz w10, #6, cw_ask
+        and w10, w10, #0x80
+        orr w10, w10, #1
+    cw_ask:
+        orr w10, w10, #0x80
+        strb w10, [x9, #0x1f2]
+    cw_out:
+        cbnz x8, cw_on
+        b #{no_physics:#x}
+    cw_on:
+        b #{resume:#x}
+"""
+
+
+def cloth_warp_hook():
+    """The code patch of the folder CLOTH_WARP_MOD (see the constants). The setter's
+    "cbz x8" at CLOTH_WARP_SITE becomes a jump to the hook, which ends with that
+    test and a jump back to either place. In between: if the call says "do not warp" (bit 0 of the
+    third argument), the actor has a cloth part (actor + 0x270 -> + 0x50 -> + 0x20 ->
+    + 0x1c8, the chain the game's own warp walks) and the Int build.SLIDE_FLAG (read as the
+    model hook reads the stored character) is not 0, a cloth warp of mode 0 is asked
+    for as the game's node OneShotPhysicsRequestClothWarp asks (the cloth part's byte
+    + 0x1f2: unless bit 6 is set, the mode bits are cleared and bit 0 set; then bit 7).
+    It uses x9-x17 only."""
+    img = exepatch.Image()
+    check_unused_node(img, CLOTH_WARP_NODE, CLOTH_WARP_DEAD, CLOTH_WARP_SHA1)
+    setter = build.ACTOR_SET_POS
+    lines = [l.split(":", 1)[1].split() for l in img.dis(setter, 24)]
+    assert lines[6:10] == [["ldr", "x8,", "[x0,", "#0x270]"], ["mov", "w20,", "w2"], ["mov", "x21,", "x1"], ["mov", "x19,", "x0"]]
+    no_physics = int(lines[10][2].lstrip("#"), 16)
+    assert CLOTH_WARP_SITE == setter + 0x28 and lines[10][:2] == ["cbz", "x8,"] and lines[11] == ["ldr", "x0,", "[x8,", "#0x50]"]
+    # the third argument: bit 0 clear = warp, passed on to the helper as its fourth
+    assert lines[21:24] == [["mov", "w8,", "#1"], ["bic", "w3,", "w8,", "w20"], ["bl", "#0x804e6630"]]
+    # what the helper does on a warp: [its object + 0x20] is the physics, + 0x1c8 the cloth part, + 0x1f2 bit 7 the request
+    assert img.dis(0x804e6630, 1)[0].split(":", 1)[1].split() == ["ldr", "x8,", "[x0,", "#0x20]"]
+    warp = [l.split(":", 1)[1].split() for l in img.dis(0x804e66fc, 12)]
+    assert warp[0][:3] == ["tbz", "w3,", "#0,"] and warp[5] == ["ldr", "x9,", "[x8,", "#0x1c8]"]
+    assert warp[9:12] == [["ldrb", "w10,", "[x9,", "#0x1f2]"], ["orr", "w10,", "w10,", "#0x80"], ["strb", "w10,", "[x9,", "#0x1f2]"]]
+    # how a request with a mode is made (the helper of the game's node), and what the cloth update does with the modes
+    ask = [l.split(":", 1)[1].split() for l in img.dis(0x80993b68, 11)]
+    assert ask[0] == ["ldrb", "w9,", "[x8,", "#0x1f2]"] and ask[1][:2] == ["tbnz", "w9,"] and ask[1][2] == "#6," \
+        and ask[2] == ["and", "w9,", "w9,", "#0x80"] and ask[8] == ["lsl", "w10,", "w10,", "w1"]
+    use = [l.split(":", 1)[1].split() for l in img.dis(0x801666f8, 2)] + [l.split(":", 1)[1].split() for l in img.dis(0x80166864, 8)]
+    assert use[0] == ["ldrb", "w9,", "[x20,", "#0x1f2]"] and use[1] == ["tbnz", "w9,", "#7,", "#0x80166848"]
+    assert use[2] == ["tbnz", "w9,", "#0,", "#0x8016691c"] and use[5][:3] == ["tbz", "w9,", "#3,"]       # mode 0: no reset
+    assert use[7] == ["mov", "w1,", "#1"] and img.dis(0x80166880, 1)[0].split(":", 1)[1].split() == ["bl", "#0x80b2f860"]
+    assert [l.split(":", 1)[1].split() for l in img.dis(0x8016691c, 2)] == [["mov", "w23,", "wzr"], ["b", "#0x80166884"]]
+    region = exepatch.CAVE_REGION
+    exepatch.CAVE_REGION = CLOTH_WARP_DEAD
+    try:
+        p = exepatch.Patcher(image=img, cave=CLOTH_WARP_DEAD)   # the signature words go to its start
+    finally:
+        exepatch.CAVE_REGION = region
+
+    def place(name, addr, blob):
+        """As Patcher._place, but over the unused routine's code instead of zeros."""
+        assert CLOTH_WARP_DEAD[0] <= addr and addr + len(blob) <= CLOTH_WARP_DEAD[1], "the unused routine is full"
+        p.raw(addr, blob)
+        p.symbols[name] = addr
+        p.cave_ptr = addr + len(blob)
+        return addr
+    p._place = place
+    h = gamedata.murmur3_32(build.SLIDE_FLAG)
+    got = build.GAMEDATA_MGR_GOT
+    at = p.cave_ptr     # right after the signature words: the body has no room for the usual step to a multiple of 16
+    place("cloth_warp", at, exepatch.assemble(CLOTH_WARP_HOOK.format(
+        got_page=got & ~0xFFF, got_off=got & 0xFFF, hlo=h & 0xFFFF, hhi=h >> 16, no_physics=no_physics,
+        resume=CLOTH_WARP_SITE + 4), at))
+    p.raw(CLOTH_WARP_SITE, exepatch.assemble("b #%#x" % at, CLOTH_WARP_SITE),
+          expect=exepatch.assemble("cbz x8, #%#x" % no_physics, CLOTH_WARP_SITE))
+    p.cloth_warp_exits = (no_physics, CLOTH_WARP_SITE + 4)
+    return p
+
+
+def check_cloth_warp(p):
+    """Run the setter's start with the hook in an ARM64 emulator, with a made-up actor and
+    flag store, up to where the hook hands back. -> number of runs."""
+    import itertools
+    import unicorn
+    from unicorn import arm64_const as A
+    hook = p.symbols["cloth_warp"]
+    code = dict(p.patches)[hook]
+    ins = list(p.img.cs.disasm(code, hook))
+    assert len(ins) * 4 == len(code), "the hook does not disassemble"
+    exits = p.cloth_warp_exits
+    for i in ins:
+        assert i.mnemonic not in ("br", "blr", "bl", "ret", "retab"), i.mnemonic
+        if i.mnemonic in ("b", "cbz", "cbnz", "tbz", "tbnz") or i.mnemonic.startswith("b."):
+            target = int(i.op_str.split("#")[-1], 16)
+            assert hook <= target < hook + len(code) or target in exits, (i.mnemonic, i.op_str)
+    setter = build.ACTOR_SET_POS
+    entry = list(p.img.cs.disasm(dict(p.patches)[CLOTH_WARP_SITE], CLOTH_WARP_SITE))
+    assert len(entry) == 1 and entry[0].mnemonic == "b" and entry[0].op_str == "#%#x" % hook
+    h = gamedata.murmur3_32(build.SLIDE_FLAG)
+    got = build.GAMEDATA_MGR_GOT
+    DATA, STACK = 0x20000000, 0x30000000
+    CELL, MGR, MAP, REC, ACTOR, P1, P2, PHYS, CLOTH, POS = (DATA + o for o in (0, 0x100, 0x1000, 0x2000, 0x3000, 0x4000, 0x4100,
+                                                                                   0x4200, 0x5000, 0x6000))
+    keep = [A.UC_ARM64_REG_X0 + i for i in range(3, 8)] + [A.UC_ARM64_REG_X18 + i for i in range(11)] + [A.UC_ARM64_REG_X29]
+    runs = 0
+    for flag, level, value, kw, byte in itertools.product(
+            (0, 1, 2, 3), (4, 3, 2, 1, 0), (0, 1, 17, 200, -1),
+            ({}, {"cap": 64}, {"crowd": True}, {"cap": 1}, {"mgr": False}, {"flag": False}), (0x00, 0x05, 0x45, 0x8a, 0x2c)):
+        if kw and (level != 4 or byte != 0x05):
+            continue
+        mgr, has_flag, cap, crowd = kw.get("mgr", True), kw.get("flag", True), kw.get("cap", 8), kw.get("crowd", False)
+        mu = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
+        for page in sorted({setter & ~0xFFF, CLOTH_WARP_SITE & ~0xFFF, hook & ~0xFFF, (hook + len(code)) & ~0xFFF}):
+            mu.mem_map(page, 0x1000)
+            mu.mem_write(page, bytes(p.img.data[page - p.img.base:page - p.img.base + 0x1000]))
+        mu.mem_map(got & ~0xFFF, 0x1000)
+        for addr, data in p.patches:
+            mu.mem_write(addr, data)
+        mu.mem_write(got, struct.pack("<Q", CELL))
+        mu.mem_map(DATA, 0x10000)
+        mu.mem_map(STACK, 0x10000)
+        mu.mem_write(CELL, struct.pack("<Q", MGR if mgr else 0))
+        mu.mem_write(MGR + 0xe0, struct.pack("<Q", MAP))
+        mu.mem_write(MGR + 0xec, struct.pack("<I", cap))
+        mu.mem_write(MGR + 0xd0, struct.pack("<I", 5))
+        mu.mem_write(MGR + 0xd8, struct.pack("<Q", REC))
+        slot = h % cap
+        if crowd:           # another flag sits in our first place: ours is one further on
+            mu.mem_write(MAP + 8 * slot, struct.pack("<II", h ^ 0x10000, 1))
+            slot = (slot + 1) % cap
+        if has_flag:
+            mu.mem_write(MAP + 8 * slot, struct.pack("<II", h, 3))
+        mu.mem_write(REC + 3 * 0x28 + 0x1c, struct.pack("<i", value))
+        # the actor: as far as `level` goes, the chain to its cloth part is there
+        for k, (where, to) in enumerate(((ACTOR + 0x270, P1), (P1 + 0x50, P2), (P2 + 0x20, PHYS), (PHYS + 0x1c8, CLOTH))):
+            mu.mem_write(where, struct.pack("<Q", to if k < level else 0))
+        mu.mem_write(CLOTH + 0x1f2, bytes([byte]))
+        mu.mem_write(POS, struct.pack("<3f", 1.5, 2.5, 3.5))
+        sp = STACK + 0x8000
+        mu.reg_write(A.UC_ARM64_REG_SP, sp)
+        mu.reg_write(A.UC_ARM64_REG_X0, ACTOR)
+        mu.reg_write(A.UC_ARM64_REG_X1, POS)
+        mu.reg_write(A.UC_ARM64_REG_X2, flag)
+        mu.reg_write(A.UC_ARM64_REG_X30, 0x40000000)
+        for k, r in enumerate(keep):
+            mu.reg_write(r, 0x1111000 + k)
+        writes = []
+        mu.hook_add(unicorn.UC_HOOK_MEM_WRITE, lambda uc, access, address, size, v, data: writes.append((address, size)))
+        mu.hook_add(unicorn.UC_HOOK_CODE, lambda uc, address, size, data: uc.emu_stop(), begin=exits[0], end=exits[0])
+        mu.hook_add(unicorn.UC_HOOK_CODE, lambda uc, address, size, data: uc.emu_stop(), begin=exits[1], end=exits[1])
+        mu.emu_start(setter, 0, count=2000)
+        what = (flag, level, value, kw, byte)
+        pc = mu.reg_read(A.UC_ARM64_REG_PC)
+        assert pc == (exits[1] if level >= 1 else exits[0]), (what, hex(pc))
+        # the setter's own state is as without the hook
+        assert mu.reg_read(A.UC_ARM64_REG_SP) == sp - 0x70 and mu.reg_read(A.UC_ARM64_REG_X8) == (P1 if level >= 1 else 0), what
+        assert (mu.reg_read(A.UC_ARM64_REG_X19), mu.reg_read(A.UC_ARM64_REG_X20) & 0xFFFFFFFF, mu.reg_read(A.UC_ARM64_REG_X21)) == \
+            (ACTOR, flag, POS), what
+        for k, r in enumerate(keep):
+            if r not in (A.UC_ARM64_REG_X19, A.UC_ARM64_REG_X20, A.UC_ARM64_REG_X21, A.UC_ARM64_REG_X29):
+                assert mu.reg_read(r) == 0x1111000 + k, (what, k)
+        want = bool(flag & 1) and level == 4 and mgr and has_flag and value != 0
+        asked = (byte | 0x80) if byte & 0x40 else 0x81      # mode 0, or the modes a locked byte has
+        assert mu.mem_read(CLOTH + 0x1f2, 1)[0] == (asked if want else byte), what
+        # nothing written but the setter's own frame and, when asked for, that one byte
+        other = [(a, n) for a, n in writes if not sp - 0x70 <= a < sp]
+        assert other == ([(CLOTH + 0x1f2, 1)] if want else []), (what, other)
+        runs += 1
+    return runs
+
+
+def cloth_slide(mod):
+    """The folder CLOTH_WARP_MOD (see the constants). Returns lines for the build's output."""
+    assert mod < CLOTH_TEST_MOD, "before the cloth folder by name"
+    p = cloth_warp_hook()
+    build.write_ips(mod, p)
+    return ["cloth warp in a slide: %d runs emulated; %d bytes of %d in %s's body" % (
+        check_cloth_warp(p), p.cave_ptr - CLOTH_WARP_DEAD[0], CLOTH_WARP_DEAD[1] - CLOTH_WARP_DEAD[0], CLOTH_WARP_NODE)]
 
 
 def sarc_add(data, added):
@@ -3142,7 +3519,9 @@ def build_mods():
     for mod in EXTRA_MODS:
         print(mod, "(test folder)")
         shutil.rmtree(os.path.join(build.BUILD, mod), ignore_errors=True)
-        print("\n".join("  " + n for n in (cloth_all if mod == CLOTH_TEST_MOD else dress_test)(mod)))
+        made = {DRESS_TEST_MOD: dress_test, CLOTH_TEST_MOD: cloth_all, CLOTH_FIT_MOD: cloth_fit,
+                CLOTH_SKIRT_MOD: cloth_adult_skirt, CLOTH_WARP_MOD: cloth_slide}[mod]
+        print("\n".join("  " + n for n in made(mod)))
     return patcher, factors, reports, pre_heap
 
 

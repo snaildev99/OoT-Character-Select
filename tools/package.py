@@ -4,13 +4,18 @@ one zip, with a list of SHA-256 sums and the readable listings of the code patch
     venv\\Scripts\\python.exe tools\\package.py <version> [--name <name>] [--allow-untested] [--max-mb <size>] [--full]
     venv\\Scripts\\python.exe tools\\package.py <version> --install
 
+With `--from-zip` and no version after it, `--install` puts the one folder of dist's zip of <version> into the
+emulator (so the look before a release is of the very zip), and `--verify` says whether what is installed is that
+zip's (after the look, before the zip is handed out).
+
 A package is ONE mod folder (2026-11-12; a download site's moderator asked why there
 were eight): the working folders merged the way the emulator sees them together (merge).
 --install puts that one folder into the emulator's mods folder in place of the working
 folders, for a look in game; a package made after that is checked against it.
 --max-mb cuts the package into parts no larger than that (a download site's limit); the
 parts unpack into the same folder; with --from-zip the parts are cut from the package
-of that version already in dist (the same files and texts). --full: the text says 99 characters (a --full build).
+of that version already in dist (the same files and texts). --full: the text names the characters of a --full
+build (more_characters.full_roster()).
 
 What goes in is build\\<folder> for the folders install-mods.bat installs, plus the
 voices folder of mods\\voices.py (build-voice\\mod; it is installed after the others). Unless
@@ -35,16 +40,18 @@ sys.path.insert(0, HERE)
 
 import build  # noqa: E402
 import exepatch  # noqa: E402
+import modstate  # noqa: E402
 import nxfmt  # noqa: E402
 import rstb  # noqa: E402
 
 NAME = "OoT-Character-Select"
 DIST = os.path.join(ROOT, "dist")
 VOICE_BUILD = os.path.join(ROOT, "build-voice", "mod")
+CUSTOM_BUILD = os.path.join(ROOT, "build-custom")      # mods\customize.py's folder (in the package since v0.2.0)
 # in the order the emulator layers them; a folder not in SOURCES comes from build.BUILD
-FOLDERS = ["Character (voice test)", "Character cloth (test)", "Character dress (test)", "Character field swap",
+FOLDERS = ["Character (customize test)", "Character (voice test)", "Character cloth (test)", "Character dress (test)", "Character field swap",
            "Character models", "Characters page", "Header four tabs", "NPC characters"]
-SOURCES = {"Character (voice test)": VOICE_BUILD}
+SOURCES = {"Character (customize test)": CUSTOM_BUILD, "Character (voice test)": VOICE_BUILD}
 RETRO = "_Retro"                    # in the file names of the Retro Link model and its textures
 RETRO_FILES = 10
 DATA = (".zs", ".ainb", ".ips", ".bwav", ".bphcl")     # .bwav: voice clips, .bphcl: a cloth file
@@ -58,13 +65,15 @@ Mod for The Legend of Zelda: Ocarina of Time (Switch 2), game version 1.1.1 only
 
 What it does
   A "Characters" page in the - menu, left of Key Items: pick one of {characters} characters
-  (Link and the game's NPCs) and play as them. A picks, B closes the menu, and the
-  character you picked becomes the one you play at once.
+  (Link, the game's NPCs and some of its enemies) and play as them. A picks, B closes
+  the menu, and the character you picked becomes the one you play at once.
 
-  The characters are model swaps on Link's animations, with basic facial animation
-  and legs that follow slopes. Saria and young Zelda also have their own voices, and
-  young Zelda's dress has experimental cloth physics. Expect visual faults: only some
-  of the characters have been tested in play.
+  The characters are model swaps on Link's animations, with basic facial animation,
+  legs that follow slopes, and their own hair, skirts and dresses as cloth. Some of
+  them have their own voices (made from Link's by voice conversion). X on the page
+  opens Customize for the character shown: hair colour, eye colour, and equipment
+  shown or hidden. Expect visual faults: only some of the characters have been
+  tested in play.
 
 Install (emulator)
   1. Close the game.
@@ -179,6 +188,13 @@ def covers(first, other):
 
 
 
+def full_count():
+    """The number of characters the picker of a --full build offers"""
+    import more_characters
+    more_characters.apply()
+    return len(more_characters.full_roster())
+
+
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -278,7 +294,22 @@ def install_one(files):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             with open(dst, "wb") as f:
                 f.write(data)
+    modstate.stamp("package.py", build.EDEN_LOAD, [ONE], removed=FOLDERS,
+                   note="the one folder of a package, in place of the working folders")
     print("installed ->", os.path.join(build.EDEN_LOAD, ONE))
+
+
+def verify_one(files):
+    """The installed one folder is byte for byte these files' mods part."""
+    there = os.path.join(build.EDEN_LOAD, ONE)
+    installed = sorted(os.path.relpath(os.path.join(r, n), there).replace(os.sep, "/")
+                       for r, _d, names in os.walk(there) for n in names)
+    mine = {n[len("mods/%s/" % ONE):]: d for n, d in files if n.startswith("mods/")}
+    assert installed == sorted(mine), "not the files that are installed in " + ONE
+    for rel in installed:
+        assert open(os.path.join(there, rel), "rb").read() == mine[rel], rel + " differs from the installed file"
+    assert not any(os.path.isdir(os.path.join(build.EDEN_LOAD, f)) for f in FOLDERS), "working folders are installed beside it"
+    print("the installed one folder is byte for byte the zip's (%d files), and no working folder is beside it" % len(installed))
 
 
 def main():
@@ -313,6 +344,12 @@ def main():
         text = "%s %s\n" % (name, version) + text[len(first):]
         files = [(n, d) for n, d in files if n not in ("INSTALL.txt", "SHA256SUMS.txt")]
         assert all(n.startswith(("mods/%s/" % ONE, "patch-listings/")) for n, _d in files)
+        if "--install" in sys.argv:     # the zip's one folder into the emulator, for the look before a release
+            install_one(files)
+            return
+        if "--verify" in sys.argv:      # after the look: what is installed is what the zip holds
+            verify_one(files)
+            return
         if max_mb is None:      # the whole package under the new name
             files.append(("INSTALL.txt", text.replace("\n", "\r\n").encode("utf-8")))
             write_zip(os.path.join(DIST, top + ".zip"), top, files)
@@ -341,7 +378,7 @@ def main():
         return
     words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
     text = INSTALL.format(name=name, version=version, build_id=exepatch.BUILD_ID, one=ONE,
-                          characters=99 if "--full" in sys.argv else len(build.PICKER_ROSTER),
+                          characters=full_count() if "--full" in sys.argv else len(build.PICKER_ROSTER),
                           patches=words[n_patches])
     top = "%s-%s" % (name, version)
     os.makedirs(DIST, exist_ok=True)

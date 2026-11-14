@@ -130,7 +130,13 @@ LEGS_AS_THEY_ARE = ("Npc_Hylia_MM_003.Npc_Hylia_MM_003",)     # sits: no leg to 
 # Mido and adult Zelda as child Link (snaildev, 2026-11-11: "everything is as expected", they
 # have facial animations).
 FACE = True
-RETIRED = ["Character leg retarget (test)", "Character faces (test)"]   # our earlier test folders: the installing build removes them
+RETIRED = ["Character leg retarget (test)", "Character faces (test)",   # our earlier test folders: the installing build removes them
+           "Character cloth (fit test)",                                # (CLOTH_FIT_MOD, 2026-11-13)
+           # 2026-11-13, when the dresses were solved (CLOTH_LEGS): the legs test is in the cloth folder itself;
+           # the adult skirt test hung dress tops under Link's driven tops, which does nothing (what the game
+           # writes into a driven bone does not reach a bone hung under it); the slide test asked for a cloth
+           # reset on the page, which the firm leash makes needless
+           "Character cloth (legs test)", "Character cloth (adult skirt test)", "Character cloth (slide test)"]
 # Experiment (2026-11-11, dresses; README, NPC section, "Dresses"): the dress hung on Link's
 # simulated tunic skirt (npcrig step 7). DRESS_TEST_MOD is an override folder (it sorts
 # before MOD; switched off in the emulator's Add-Ons list everything is the build without
@@ -161,6 +167,11 @@ DRESS_TEST_AGE = "Child"
 CLOTH_TEST_MOD = "Character cloth (test)"
 CLOTH_TEST_CHARACTER = "Npc_Hylia_WU_Zelda_Child.Npc_Hylia_WU_Zelda_Child"
 CLOTH_FIRST = (CLOTH_TEST_CHARACTER,)
+# Skirts and dresses on the player (tools\clothlegs.py; README, NPC section, "Dresses and the legs", MILESTONE):
+# the dress bones hang on the leg joints and the points that follow a leg get a firm leash, for every character
+# with a skirt or dress mesh and both ages. Young Zelda as child Link passed in game on 2026-11-13 (her two
+# files are byte for byte the ones of that test). Nothing changes size.
+CLOTH_LEGS = True
 CLOTH_FILE = "Phive/Cloth/%s.Nin_Ounce_NVN2.bphcl"
 CLOTH_NAME = "%s_C%s"       # a pack's / the player's name, cloth_letters(stored number): the files of a character's own cloth
 CLOTH_SET = "Phive/ControllerSetParam/%s.phive__ControllerSetParam.bgyml"
@@ -202,27 +213,34 @@ CLOTH_DEAD_SHA1 = "84c10ccbc5a758487d974ef7240a82ec157b7c98"    # its bytes in g
 # after young Zelda is picked on the page her dress stays flung around a leg). Each is an
 # override folder of its own that sorts before the cloth folder, so each can be switched off
 # alone in the Add-Ons list; README, NPC section, "Dresses and the legs".
-# 1. More room for a dress to follow the legs. A mesh's ClothParam entry says how far the
-#    cloth may leave the shape the bones give it (localRange_maximumDistance) and how far
-#    it keeps from the collision shapes (simulation_particleRadius). The NPCs' dresses are
-#    set for NPCs' steps (young Zelda's 15 and 12, adult Zelda's 30 and 8; her own second
-#    mesh for running, Skirt_Run, has 45 and 10); Link's stance is far wider. This folder
-#    has the four packs of the cloth folder again with those two numbers raised for the
-#    skirt and dress meshes of the women and girls (CLOTH_FIT_*); nothing else differs.
+# 1. A dress that holds together around the legs. What a simulated mesh does is baked into
+#    the cloth file (cloth_tune reads it there): a dress is twelve columns of particles
+#    that hang from the waist, a hand apart, tied sideways by links; young Zelda's links
+#    give 0.4 of a stretch back in a solver pass and the adult women's 0.1, there is ONE
+#    pass a frame, and a particle may leave the place its bones give it by 15 cm at most
+#    (the hem; less higher up). For an NPC's steps that is a flowing dress. Under Link's
+#    strides and lunges the columns part and a leg comes out between them: "the knees
+#    come through at the front", "the dress falls behind the lower leg" (snaildev). This
+#    folder has the cloth files of the women's and girls' skirt and dress meshes again
+#    with firmer links, more passes and more room (CLOTH_FIT_*); nothing else differs.
+#    (The first two cuts changed the ClothParam's numbers for room and distance kept,
+#    ParamCoefDict. The game's code has neither those names nor their hashes, and a
+#    distance of 21 cm from the legs made no dress look any fuller: they are what the
+#    file was made from, not read when the game runs. snaildev's "improved" and "worse" for
+#    those two cuts have no cause in what was changed.)
+#    THIRD CUT, IN GAME (snaildev, 2026-11-13): "The cloth physics are messed up now, and the
+#    knee problem isn't fixed. The bottom of the dress flips upward and gets stuck." So the
+#    links, the passes and the room are not what lets the knees through, and the folder is
+#    RETIRED (not built; the installers remove it). cloth_tune and ClothTag stay as the
+#    way to read and change a cloth file's numbers. What is left to find out: whether the
+#    collision shapes follow the player's legs at all (README, "Dresses and the legs").
 CLOTH_FIT_MOD = "Character cloth (fit test)"
 CLOTH_FIT_WHO = r"Npc_(Hylia|Kokiri)_W"     # the models, by name: Hylian women and Kokiri girls
 CLOTH_FIT_MESH = r"Skirt|Dress"             # their meshes, by the NPC's own name for them
-CLOTH_FIT_RANGE = (3.0, 60.0)       # localRange_maximumDistance: this many times the NPC's, at most this, never less than the NPC's
-CLOTH_FIT_RADIUS = 1.5              # simulation_particleRadius: times this,
-# and for a long skirt (one whose room was this or more: the dresses have 15 to 31, the
-# tunic skirts 5 to 6.5) times this and at least this. First round (snaildev, 2026-11-13, with
-# times 1.5 for all): young Zelda's knees "improved" but still through the front a little,
-# her dress still behind the front leg in the sword stance; the adults' "roughly the same".
-# A dress is moved by twelve columns of bones, about a hand apart at knee height; a leg's
-# collision shape that passes between two columns pushes neither unless shape and distance
-# kept together reach them, and a leg that moves further in a frame than they are thick
-# goes through. So the distance kept is what lets a leg carry a dress.
-CLOTH_FIT_LONG = (12.0, 3.5, 40.0)
+CLOTH_FIT_LINK = 0.8        # the sideways links give at least this much of a stretch back in a pass
+CLOTH_FIT_PASSES = (2, 4)   # steps a frame, solver passes a step (the game's cloth has 1 and 1)
+CLOTH_FIT_ROOM = (3.0, 0.60)    # how far a particle may leave the place its bones give it: times this, but the furthest
+                                # no further than this (metres), and none less far than before
 # 2. As adult Link the dress tops hang from his skirt (npcrig step 8, tops=): the adult
 #    models of the 44 characters that have such tops, in place of the cloth folder's.
 CLOTH_SKIRT_MOD = "Character cloth (adult skirt test)"
@@ -241,16 +259,32 @@ CLOTH_SKIRT_MOD = "Character cloth (adult skirt test)"
 #    this it resets the cloth and runs its settling steps again (0x80b2f860 with 1):
 #    asked on every frame of a slide that froze the cloth and made the game lag badly
 #    (snaildev, 2026-11-13, the first cut of this patch; the leg was cured). Mode 0 (bit 0)
-#    skips the reset and only carries the cloth along with the actor: that is asked now.
+#    skips the reset: asked on every frame (the second cut) the slide was "smooth and
+#    alive" but the leg was "through again", so it is the reset that frees a caught dress.
+#    Third cut: ONE request with mode 3 (bit 3: the reset with its settling steps) for
+#    each of the two characters, in the camera update in which the slide's count shows
+#    that the new one has arrived; nothing before it and nothing after. In game (snaildev,
+#    2026-11-13): "when they enter, the dress freezes for a second, then resets to a
+#    correct position": the settling steps are spread over about a second in which the
+#    cloth stands still. Fourth cut: the same one request with mode 1 (bit 1: the game's
+#    other reset, 0x80e64e80(controller, 0), without the settling steps; mode 2 is the
+#    same routine with them): "no freeze, leg through" (snaildev, 2026-11-13): it does not
+#    free a caught dress either. So of what a request can ask for, only mode 3 puts the
+#    dress right, and it is what is asked again (the third cut), with its second of
+#    stillness, until something better is found: the plain reset without settling steps
+#    (0x80b2f860(controller, 0), what the node OneShotClothControllerReset calls by
+#    default) has no request of its own, and calling it from the camera update is not
+#    known to be safe while cloth is computed in parallel.
 #    The hook is in the one-shot body of a sequence node class nothing uses (as the cloth
 #    hook, check_unused_node); keep other patches off it and off CLOTH_WARP_SITE.
 CLOTH_WARP_MOD = "Character cloth (slide test)"
 CLOTH_WARP_SITE = 0x80964e98        # in the setter: "cbz x8, #0x80964ed4" (x8 = [actor + 0x270]; x19 actor, w20 the third argument)
+CLOTH_WARP_ASK = 0x88               # the request byte: bit 7 = a warp is asked for, bit 3 = mode 3, the reset with its settling steps
 CLOTH_WARP_NODE = "SeqOneShotSetLODJudgeLayer"
 CLOTH_WARP_DEAD = (0x83304c20, 0x83304cf0)      # its body and the 12 bytes of padding after it
 CLOTH_WARP_SHA1 = "1ffb80de3d6fa1f8dbba0d87e2701cd1779722e4"    # their bytes in game v1.1.1
 # folders build_mods() makes besides MOD, in this order; the caller installs them too
-EXTRA_MODS = [DRESS_TEST_MOD, CLOTH_TEST_MOD, CLOTH_FIT_MOD, CLOTH_SKIRT_MOD, CLOTH_WARP_MOD]
+EXTRA_MODS = [DRESS_TEST_MOD, CLOTH_TEST_MOD]       # (CLOTH_SKIRT_MOD and CLOTH_WARP_MOD are retired: see RETIRED)
 
 HAIR_MATERIAL = "Mt_Hairs"
 HAIR_STAND_INS = ("Mt_Hair", "Mt_Teeth", "Mt_Item_DekuStick")
@@ -610,6 +644,171 @@ def cloth_strings(data):
     return out, ((data_a, data_b), (first, stop))
 
 
+class ClothTag:
+    """The Havok tag file inside a cloth file, read far enough to find a mesh's numbers:
+    its items (ITEM: 12 bytes each: kind and type, offset in DATA, count) with the names of
+    their types (TST1: the type names; TNA1: a count, then a type a record: name, number
+    of template arguments, the arguments in pairs; all in Havok's packed integers). A
+    pointer in DATA is an item's number."""
+
+    def __init__(self, data):
+        self.d = d = data
+        assert d[:5] == b"Phive"
+        hkt = struct.unpack_from("<I", d, 0x0C)[0]
+        sec = {}
+
+        def sections(at, stop):
+            while at < stop:
+                size, tag = struct.unpack_from(">I4s", d, at)
+                leaf, size = size >> 30 & 1, size & 0x3FFFFFFF
+                assert size >= 8, tag
+                sec.setdefault(tag, []).append((at + 8, at + size))
+                if not leaf:
+                    sections(at + 8, at + size)
+                at += size
+        size, tag = struct.unpack_from(">I4s", d, hkt)
+        assert tag == b"TAG0"
+        sections(hkt, hkt + (size & 0x3FFFFFFF))
+        (self.data_a, self.data_b), = sec[b"DATA"]
+        (a, b), = sec[b"ITEM"]
+        self.items = [struct.unpack_from("<III", d, o) for o in range(a, b - 11, 12)]
+        (a, b), = sec[b"TST1"]
+        strings = d[a:b].split(b"\0")
+        (a, b), = sec[b"TNA1"]
+        n, at = self.packed(a)
+        self.types = [None]
+        for _ in range(n - 1):
+            name, at = self.packed(at)
+            args, at = self.packed(at)
+            for _ in range(2 * args):
+                _, at = self.packed(at)
+            self.types.append(strings[name].decode("latin-1"))
+        assert at <= b
+        offs = sorted({o for _, o, _ in self.items}) + [self.data_b - self.data_a]
+        self.next = {o: offs[i + 1] for i, o in enumerate(offs[:-1])}
+
+    def packed(self, at):
+        d, b = self.d, self.d[at]
+        for top, size, mask in ((0x80, 1, 0x7F), (0xC0, 2, 0x3F), (0xE0, 3, 0x1F), (0xE8, 4, 0x07), (0xF0, 5, 0x07), (0xF8, 8, 0x07)):
+            if b < top:
+                return ((b & mask) << (8 * (size - 1))) | int.from_bytes(d[at + 1:at + size], "big"), at + size
+        assert b in (0xF8, 0xF9), b
+        size = 6 if b == 0xF8 else 9
+        return int.from_bytes(d[at + 1:at + size], "big"), at + size
+
+    def type(self, i):
+        t = self.items[i][0] & 0xFFFFFF
+        return self.types[t] if 0 < t < len(self.types) else ""
+
+    def span(self, i):
+        """(where the item's data starts in the file, its size up to the next item)."""
+        off = self.items[i][1]
+        return self.data_a + off, self.next[off] - off
+
+    def text(self, i):
+        a, _ = self.span(i)
+        return self.d[a:a + self.items[i][2]].split(b"\0")[0].decode("latin-1")
+
+    def refs(self, i, through=True):
+        """The items an item points at; through its arrays of pointers too."""
+        a, size = self.span(i)
+        out = []
+        for x in struct.unpack_from("<%dQ" % (size // 8), self.d, a):
+            if 0 < x < len(self.items) and self.items[x][1] in self.next:
+                out.append(x)
+                if through and self.type(x) in ("T*", "hkRefPtr"):
+                    b, _ = self.span(x)
+                    out += [p for p in struct.unpack_from("<%dQ" % self.items[x][2], self.d, b) if 0 < p < len(self.items)]
+        return out
+
+    def meshes(self):
+        """{a simulated mesh's name: {what: item}}: its particles (hclSimClothData::ParticleData:
+        mass, 1 / mass, size, friction), its sideways links ("links": hclStandardLinkConstraintSet::
+        Link: two particles, rest length, stiffness), its places ("local": hclLocalRangeConstraintSet::
+        LocalConstraint or ::LocalStiffnessConstraint: particle, reference vertex, the distance it
+        may leave by, two limits along the normal [, stiffness]) and its solver's settings ("config":
+        hclSimulateOperator::Config: name, two arrays, then a byte each: steps, passes, two flags)."""
+        out = {}
+        for i in range(len(self.items)):
+            if self.type(i) != "hclClothData":
+                continue
+            name = next(self.text(x) for x in self.refs(i, False) if self.type(x) == "char")
+            info = out[name] = {}
+            for r in self.refs(i):
+                if self.type(r) == "hclSimClothData":
+                    for q in self.refs(r):
+                        # (the first of a kind: a plain number in the object can read as an item's number too)
+                        if self.type(q) == "hclSimClothData::ParticleData":
+                            info.setdefault("particles", q)
+                        for kind, key in (("hclStandardLinkConstraintSet", "links"), ("hclLocalRangeConstraintSet", "local")):
+                            if self.type(q) == kind:
+                                for z in self.refs(q, False):
+                                    if self.type(z).startswith(kind + "::"):
+                                        info.setdefault(key, z)
+                elif self.type(r) == "hclSimulateOperator":
+                    for q in self.refs(r, False):
+                        if self.type(q) == "hclSimulateOperator::Config":
+                            info.setdefault("config", q)
+        return out
+
+
+def cloth_tune(data, meshes, link, passes, room):
+    """The cloth file `data` with the simulated meshes `meshes` (names) made to hold together
+    (see CLOTH_FIT_MOD): each sideways link gives at least `link` of a stretch back in a
+    solver pass, the solver takes passes[0] steps a frame and passes[1] passes a step, and
+    a particle may leave its place by `room` times as far. -> (bytes, lines about it).
+    A link's stiffness is kept in the file as the share given back, divided by the sum of
+    its two particles' 1 / mass (young Zelda: 0.0012 * (168 + 168) = 0.4, what her
+    ClothParam calls standardLink_stiffness); a pinned particle has 1 / mass = 0."""
+    t = ClothTag(data)
+    out = bytearray(data)
+    found = t.meshes()
+    notes, touched = [], []
+    for name in sorted(meshes):
+        info = found[name]
+        assert {"particles", "links", "config"} <= set(info), (name, sorted(info))
+        a, size = t.span(info["particles"])
+        n = t.items[info["particles"]][2]
+        assert n * 16 <= size < n * 16 + 16
+        inv = [struct.unpack_from("<4f", data, a + 16 * k)[1] for k in range(n)]
+        a, size = t.span(info["links"])
+        count = t.items[info["links"]][2]
+        assert count * 12 <= size < count * 12 + 16
+        was = []
+        for k in range(count):
+            pa, pb, rest, stiff = struct.unpack_from("<HHff", data, a + 12 * k)
+            w = inv[pa] + inv[pb]
+            assert pa < n and pb < n and rest > 0 and 0 <= stiff * w <= 1.0001, (name, k, pa, pb, rest, stiff, w)
+            was.append(stiff * w)
+            if w > 0 and stiff * w < link:
+                struct.pack_into("<f", out, a + 12 * k + 8, link / w)
+        touched.append((a, a + 12 * count))
+        a, size = t.span(info["config"])
+        assert t.items[info["config"]][2] == 1 and size >= 0x2C and bytes(data[a + 0x28:a + 0x2C]) == b"\1\1\1\0", (name, data[a + 0x28:a + 0x2C])
+        out[a + 0x28], out[a + 0x29] = passes
+        touched.append((a + 0x28, a + 0x2A))
+        far = None
+        if "local" in info:
+            a, size = t.span(info["local"])
+            count = t.items[info["local"]][2]
+            step = {"hclLocalRangeConstraintSet::LocalConstraint": 16, "hclLocalRangeConstraintSet::LocalStiffnessConstraint": 20}[t.type(info["local"])]
+            assert count * step <= size < count * step + 16
+            rows = [struct.unpack_from("<HHf", data, a + step * k) for k in range(count)]
+            assert all(p < n and 0 <= dist < 2.0 for p, _v, dist in rows), name
+            far = max(dist for _p, _v, dist in rows)
+            times = max(1.0, min(room[0], room[1] / far)) if far > 0 else 1.0
+            for k, (_p, _v, dist) in enumerate(rows):
+                struct.pack_into("<f", out, a + step * k + 4, dist * times)
+            touched.append((a, a + step * count))
+        notes.append("%s: %d links, a stretch given back %.2f..%.2f -> at least %.2f; steps and passes 1, 1 -> %d, %d; room %s" % (
+            name, len(was), min(was), max(was), link, passes[0], passes[1],
+            "up to %.0f cm -> %.0f cm" % (far * 100, far * times * 100) if far is not None else "not limited"))
+    out = bytes(out)
+    assert len(out) == len(data)
+    assert all(any(a <= i < b for a, b in touched) for i in range(len(data)) if out[i] != data[i]), "a byte outside the meshes' numbers changed"
+    return out, notes
+
+
 def cloth_rename(data, names, known):
     """The cloth file `data` with the strings `names` ({old: new}, of one length each)
     changed: where a name is a whole string of the file (cloth_strings), and a mesh's name
@@ -678,6 +877,7 @@ def cloth_todo():
 def cloth_all(mod):
     """The folder CLOTH_TEST_MOD (see the constants). Returns lines for the build's output."""
     import collections
+    import clothlegs
     assert mod < DRESS_TEST_MOD < MOD and mod < min(build.MODS), "the test folder must sort before the folders it overrides"
     own = len(build.CHARACTERS)
     stock = build.stock_table()
@@ -702,7 +902,12 @@ def cloth_all(mod):
             src = cloth_source(stem)
             stored = own + number
             zs, size, growth, report = rigged(stem, age, "full", legs=LEGS, face=FACE, cloth=True)
+            if CLOTH_LEGS:      # a skirt's or dress's bones on the legs (the same size, bone records in place)
+                zs, hung = clothlegs.model(stem, age, zs, report)
+                count["dress bones on the legs"] += hung
+                count["dresses"] += hung > 0
             model = bfres.Fres(nxfmt.unzs(zs, stem)).model()
+            assert len(nxfmt.unzs(zs, stem)) == size
             model_names = {b.name for b in model.bones}
             before_names = {b.name for b in bfres.Fres(npc_data(stem)[1]).model().bones}
             need = pre_actor_need(model)
@@ -758,6 +963,9 @@ def cloth_all(mod):
             renames = {old: new for old, new in bones.items() if old in names}
             renames.update((old, new) for old, new in mesh_names.items() if old != new)
             cloth = cloth_rename(data, renames, before_names | set(mesh_names) | {c["Name"] for c in src["collidables"]})
+            if CLOTH_LEGS:      # and a firm leash for the points that follow a leg (numbers in place)
+                cloth, _lines, firm = clothlegs.cloth(stem, cloth)
+                count["firm points"] += firm
             after = set(cloth_file_names(cloth))
             assert all(n in after for n in mesh_names.values()), stem
             assert all(c["Name"] in after for c in src["collidables"]), stem
@@ -775,6 +983,9 @@ def cloth_all(mod):
                      "his %d collision shapes + %d" % (len(link_param["MeshList"]), len(meshes), count["an entry that was there"],
                                                        count["meshes"], count["renamed"], len(link_param["CollidableList"]),
                                                        len(collidables)))
+        if CLOTH_LEGS:
+            notes.append("  skirts and dresses: %d characters with dress bones on the legs (%d bones given a leg joint as parent), "
+                         "%d points with a firm leash" % (count["dresses"], count["dress bones on the legs"], count["firm points"]))
 
     # one set of cloth settings for everybody in the player's packs (the packs as MOD ships them: retargeted)
     for pack in sorted({p for age in AGES for p in RETARGET_PACKS[age][1]}):
@@ -870,68 +1081,31 @@ def cloth_all(mod):
 
 
 def cloth_fit(mod):
-    """The folder CLOTH_FIT_MOD (see the constants): the cloth folder's four packs with more
-    room in the settings of the dresses. Returns lines for the build's output."""
+    """The folder CLOTH_FIT_MOD (see the constants): the cloth files of the skirt and dress
+    meshes, made to hold together around the legs. Returns lines for the build's output."""
     assert mod < CLOTH_TEST_MOD and _cloth_entries, "after the cloth folder, and before it by name"
-    notes, said = [], {}
-    for pack in sorted({p for age in AGES for p in RETARGET_PACKS[age][1]}):
-        rel = "Pack/Actor/%s.pack.zs" % pack
-        raw = open(os.path.join(build.BUILD, CLOTH_TEST_MOD, "romfs", *rel.split("/")), "rb").read()
-        stock_raw = open(os.path.join(nxfmt.ROMFS, rel), "rb").read()
-        data = nxfmt.unzs(raw, rel)
-        files = nxfmt.sarc_files(data)
-        changes = {}
-        for age in AGES:
-            k = CLOTH_PARAM % ("Player_" + age)
-            if k not in files:
-                continue
-            old = bytes(files[k])
-            param = byml.load(old)
-            assert byml.dump(param, byml.version_of(old)) == old, k
-            meshes, lines = [], []
-            for m in param["MeshList"]:
-                owners = _cloth_entries[age].get(m["Name"], [])
-                fit = [o for o in owners if re.match(CLOTH_FIT_WHO, o[0].split(".")[1]) and re.search(CLOTH_FIT_MESH, o[1])]
-                if fit and "ParamCoefDict" in m:
-                    # (an entry is shared by meshes of one name with the same settings: one of
-                    # another model that shares it gets the same room)
-                    coef = dict(m["ParamCoefDict"])
-                    was = (coef.get("localRange_maximumDistance"), coef.get("simulation_particleRadius"))
-                    def f32(x):         # as the file keeps it
-                        return struct.unpack("<f", struct.pack("<f", x))[0]
-                    if was[0] is not None:
-                        coef["localRange_maximumDistance"] = type(was[0])(f32(max(was[0], min(was[0] * CLOTH_FIT_RANGE[0], CLOTH_FIT_RANGE[1]))))
-                    if was[1] is not None:
-                        long = was[0] is not None and was[0] >= CLOTH_FIT_LONG[0]
-                        coef["simulation_particleRadius"] = type(was[1])(f32(
-                            max(was[1] * CLOTH_FIT_LONG[1], CLOTH_FIT_LONG[2]) if long else was[1] * CLOTH_FIT_RADIUS))
-                    lines.append((sorted({o[0].split(".")[1][len("Npc_"):] for o in owners}), m["Name"], was,
-                                  (coef.get("localRange_maximumDistance"), coef.get("simulation_particleRadius"))))
-                    m = dict(m, ParamCoefDict=coef)
-                meshes.append(m)
-            assert lines, age
-            new = dict(param, MeshList=meshes)
-            changes[k] = byml.dump(new, byml.version_of(old))
-            # (a file's size can change by a little: it keeps equal entries once)
-            assert byml.load(changes[k]) == new and abs(len(changes[k]) - len(old)) < 4096, (k, len(changes[k]), len(old))
-            assert said.setdefault(age, lines) == lines, "the packs' copies of the settings differ"
-        out = nxpack.sarc_replace(data, changes)
-        got = nxfmt.sarc_files(out)
-        assert all(bytes(got[k]) == (changes[k] if k in changes else bytes(v)) for k, v in files.items()) and len(got) == len(files)
-        assert not any(a % 8 for _, a, _ in nxfmt.sarc_entries(out))
-        build.write(mod, rel, nxpack.zs_compress_like(out, stock_raw), len(out), build.SIZES)
-        for k in changes:       # the cloth folder's entry for it has room for this
-            assert build.SIZES[k] >= build.stock_table().get(k) + 4 * (len(changes[k]) - len(nxfmt.sarc_files(nxfmt.unzs(stock_raw, rel))[k])), k
+    own = len(build.CHARACTERS)
+    stock = build.stock_table()
+    notes, count = [], 0
     for age in AGES:
-        lines = said[age]
-        notes.append("as %s Link: %d settings entries of %d characters' skirts and dresses" % (
-            age.lower(), len(lines), len({w for who, _, _, _ in lines for w in who})))
-        for who, name, was, now in lines:
-            if any(w in ("Hylia_WU_Zelda_Child", "Hylia_WU_Zelda_Adult", "Hylia_WC_Malon_Child", "Hylia_WN_Malon_Adult") for w in who):
-                notes.append("  %s %s: room %g -> %g, distance kept %g -> %g" % (
-                    ", ".join(who), name, was[0] if was[0] is not None else -1, now[0] if now[0] is not None else -1,
-                    was[1] if was[1] is not None else -1, now[1] if now[1] is not None else -1))
-    return notes
+        player = "Player_" + age
+        by_stem = {}
+        for name, owners in _cloth_entries[age].items():
+            for stem, original in owners:
+                if re.match(CLOTH_FIT_WHO, stem.split(".")[1]) and re.search(CLOTH_FIT_MESH, original):
+                    by_stem.setdefault(stem, set()).add(name)
+        for number, stem in cloth_todo():
+            if stem not in by_stem:
+                continue
+            rel = CLOTH_FILE % (CLOTH_NAME % (player, cloth_letters(own + number)))
+            data = open(os.path.join(build.BUILD, CLOTH_TEST_MOD, "romfs", *rel.split("/")), "rb").read()
+            tuned, lines = cloth_tune(data, by_stem[stem], CLOTH_FIT_LINK, CLOTH_FIT_PASSES, CLOTH_FIT_ROOM)
+            assert tuned != data and cloth_strings(tuned) == cloth_strings(data), stem
+            build.write(mod, rel, tuned, len(tuned), build.SIZES, size=stock.get(CLOTH_FILE % cloth_source(stem)["cloth"]))
+            count += age == AGES[0]
+            if age == AGES[0] and stem.split(".")[1] in ("Npc_Hylia_WU_Zelda_Child", "Npc_Hylia_WU_Zelda_Adult", "Npc_Hylia_WN_Malon_Adult"):
+                notes += ["%s %s" % (stem.split(".")[1][len("Npc_"):], line) for line in lines]
+    return ["%d characters' skirt and dress meshes, as both Links" % count] + notes
 
 
 def cloth_adult_skirt(mod):
@@ -1002,13 +1176,9 @@ CLOTH_WARP_HOOK = """
         mov w15, #0x28
         umaddl x17, w16, w15, x17
         ldr w16, [x17, #0x1c]
-        cbz w16, cw_out
-        ldrb w10, [x9, #0x1f2]
-        tbnz w10, #6, cw_ask
-        and w10, w10, #0x80
-        orr w10, w10, #1
-    cw_ask:
-        orr w10, w10, #0x80
+        cmp w16, #{frame}
+        b.ne cw_out
+        mov w10, #{ask:#x}
         strb w10, [x9, #0x1f2]
     cw_out:
         cbnz x8, cw_on
@@ -1024,10 +1194,11 @@ def cloth_warp_hook():
     test and a jump back to either place. In between: if the call says "do not warp" (bit 0 of the
     third argument), the actor has a cloth part (actor + 0x270 -> + 0x50 -> + 0x20 ->
     + 0x1c8, the chain the game's own warp walks) and the Int build.SLIDE_FLAG (read as the
-    model hook reads the stored character) is not 0, a cloth warp of mode 0 is asked
-    for as the game's node OneShotPhysicsRequestClothWarp asks (the cloth part's byte
-    + 0x1f2: unless bit 6 is set, the mode bits are cleared and bit 0 set; then bit 7).
-    It uses x9-x17 only."""
+    model hook reads the stored character) is the count of the frame after the new
+    character's arrival, a cloth warp of mode 3 is asked for (the cloth part's byte
+    + 0x1f2 becomes CLOTH_WARP_ASK: bit 7 the request, bit 3 the mode). The count is
+    there for one camera update, in which the slide sets both characters' places: one
+    request each. It uses x9-x17 only."""
     img = exepatch.Image()
     check_unused_node(img, CLOTH_WARP_NODE, CLOTH_WARP_DEAD, CLOTH_WARP_SHA1)
     setter = build.ACTOR_SET_POS
@@ -1048,9 +1219,14 @@ def cloth_warp_hook():
         and ask[2] == ["and", "w9,", "w9,", "#0x80"] and ask[8] == ["lsl", "w10,", "w10,", "w1"]
     use = [l.split(":", 1)[1].split() for l in img.dis(0x801666f8, 2)] + [l.split(":", 1)[1].split() for l in img.dis(0x80166864, 8)]
     assert use[0] == ["ldrb", "w9,", "[x20,", "#0x1f2]"] and use[1] == ["tbnz", "w9,", "#7,", "#0x80166848"]
-    assert use[2] == ["tbnz", "w9,", "#0,", "#0x8016691c"] and use[5][:3] == ["tbz", "w9,", "#3,"]       # mode 0: no reset
+    assert use[2] == ["tbnz", "w9,", "#0,", "#0x8016691c"] and use[5][:3] == ["tbz", "w9,", "#3,"]       # mode 0: no reset; mode 3:
     assert use[7] == ["mov", "w1,", "#1"] and img.dis(0x80166880, 1)[0].split(":", 1)[1].split() == ["bl", "#0x80b2f860"]
     assert [l.split(":", 1)[1].split() for l in img.dis(0x8016691c, 2)] == [["mov", "w23,", "wzr"], ["b", "#0x80166884"]]
+    # mode 1: the other reset, without the settling steps; mode 2: the same with them
+    assert use[3] == ["tbnz", "w9,", "#1,", "#0x80166d80"] and use[4] == ["tbnz", "w9,", "#2,", "#0x80166910"]
+    assert [l.split(":", 1)[1].split() for l in img.dis(0x80166d80, 3)] == [["mov", "x0,", "x19"], ["mov", "w1,", "wzr"], ["b", "#0x80166918"]]
+    assert [l.split(":", 1)[1].split() for l in img.dis(0x80166910, 3)] == [["mov", "x0,", "x19"], ["mov", "w1,", "#1"], ["bl", "#0x80e64e80"]]
+    assert CLOTH_WARP_ASK == 0x80 | 1 << 3
     region = exepatch.CAVE_REGION
     exepatch.CAVE_REGION = CLOTH_WARP_DEAD
     try:
@@ -1068,10 +1244,18 @@ def cloth_warp_hook():
     p._place = place
     h = gamedata.murmur3_32(build.SLIDE_FLAG)
     got = build.GAMEDATA_MGR_GOT
-    at = p.cave_ptr     # right after the signature words: the body has no room for the usual step to a multiple of 16
-    place("cloth_warp", at, exepatch.assemble(CLOTH_WARP_HOOK.format(
+    # the slide's count (build.py, view_hook): the frame of the new character's way in is the
+    # count before it is raised, and the count is raised before the places are set; the
+    # way in is done at the first frame whose share is the whole of it. One frame later
+    # the character stands; the swap waits build.slide_wait() frames before it ends.
+    st = build.SLIDE_STYLE
+    arrive = next(i for i, f in enumerate(st["in_frames"]) if f == build.STYLE_ONE)
+    frame = arrive + 1
+    assert not st["together"] and 1 < frame < build.slide_wait() < build.STYLE_FRAMES <= build.SLIDE_STASH, (arrive, build.slide_wait())
+    p.cloth_warp_frame = frame
+    at = p.cave("cloth_warp", CLOTH_WARP_HOOK.format(
         got_page=got & ~0xFFF, got_off=got & 0xFFF, hlo=h & 0xFFFF, hhi=h >> 16, no_physics=no_physics,
-        resume=CLOTH_WARP_SITE + 4), at))
+        resume=CLOTH_WARP_SITE + 4, frame=frame, ask=CLOTH_WARP_ASK))
     p.raw(CLOTH_WARP_SITE, exepatch.assemble("b #%#x" % at, CLOTH_WARP_SITE),
           expect=exepatch.assemble("cbz x8, #%#x" % no_physics, CLOTH_WARP_SITE))
     p.cloth_warp_exits = (no_physics, CLOTH_WARP_SITE + 4)
@@ -1104,8 +1288,9 @@ def check_cloth_warp(p):
                                                                                    0x4200, 0x5000, 0x6000))
     keep = [A.UC_ARM64_REG_X0 + i for i in range(3, 8)] + [A.UC_ARM64_REG_X18 + i for i in range(11)] + [A.UC_ARM64_REG_X29]
     runs = 0
+    frame = p.cloth_warp_frame
     for flag, level, value, kw, byte in itertools.product(
-            (0, 1, 2, 3), (4, 3, 2, 1, 0), (0, 1, 17, 200, -1),
+            (0, 1, 2, 3), (4, 3, 2, 1, 0), (0, 1, frame - 1, frame, frame + 1, build.STYLE_FRAMES - 1, build.SLIDE_STASH, -1),
             ({}, {"cap": 64}, {"crowd": True}, {"cap": 1}, {"mgr": False}, {"flag": False}), (0x00, 0x05, 0x45, 0x8a, 0x2c)):
         if kw and (level != 4 or byte != 0x05):
             continue
@@ -1160,9 +1345,8 @@ def check_cloth_warp(p):
         for k, r in enumerate(keep):
             if r not in (A.UC_ARM64_REG_X19, A.UC_ARM64_REG_X20, A.UC_ARM64_REG_X21, A.UC_ARM64_REG_X29):
                 assert mu.reg_read(r) == 0x1111000 + k, (what, k)
-        want = bool(flag & 1) and level == 4 and mgr and has_flag and value != 0
-        asked = (byte | 0x80) if byte & 0x40 else 0x81      # mode 0, or the modes a locked byte has
-        assert mu.mem_read(CLOTH + 0x1f2, 1)[0] == (asked if want else byte), what
+        want = bool(flag & 1) and level == 4 and mgr and has_flag and value == frame
+        assert mu.mem_read(CLOTH + 0x1f2, 1)[0] == (CLOTH_WARP_ASK if want else byte), what
         # nothing written but the setter's own frame and, when asked for, that one byte
         other = [(a, n) for a, n in writes if not sp - 0x70 <= a < sp]
         assert other == ([(CLOTH + 0x1f2, 1)] if want else []), (what, other)
@@ -1175,8 +1359,9 @@ def cloth_slide(mod):
     assert mod < CLOTH_TEST_MOD, "before the cloth folder by name"
     p = cloth_warp_hook()
     build.write_ips(mod, p)
-    return ["cloth warp in a slide: %d runs emulated; %d bytes of %d in %s's body" % (
-        check_cloth_warp(p), p.cave_ptr - CLOTH_WARP_DEAD[0], CLOTH_WARP_DEAD[1] - CLOTH_WARP_DEAD[0], CLOTH_WARP_NODE)]
+    return ["one cloth reset when a slide's new character has arrived (count %d): %d runs emulated; %d bytes of %d in %s's body" % (
+        p.cloth_warp_frame, check_cloth_warp(p), p.cave_ptr - CLOTH_WARP_DEAD[0], CLOTH_WARP_DEAD[1] - CLOTH_WARP_DEAD[0],
+        CLOTH_WARP_NODE)]
 
 
 def sarc_add(data, added):
@@ -3519,8 +3704,8 @@ def build_mods():
     for mod in EXTRA_MODS:
         print(mod, "(test folder)")
         shutil.rmtree(os.path.join(build.BUILD, mod), ignore_errors=True)
-        made = {DRESS_TEST_MOD: dress_test, CLOTH_TEST_MOD: cloth_all, CLOTH_FIT_MOD: cloth_fit,
-                CLOTH_SKIRT_MOD: cloth_adult_skirt, CLOTH_WARP_MOD: cloth_slide}[mod]
+        made = {DRESS_TEST_MOD: dress_test, CLOTH_TEST_MOD: cloth_all, CLOTH_SKIRT_MOD: cloth_adult_skirt,
+                CLOTH_WARP_MOD: cloth_slide}[mod]
         print("\n".join("  " + n for n in made(mod)))
     return patcher, factors, reports, pre_heap
 

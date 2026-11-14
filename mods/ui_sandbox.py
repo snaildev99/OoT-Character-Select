@@ -909,6 +909,11 @@ PAGE_X = GRID_RIGHT - KEY_W - PAGE_GAP - PAGE_W / 2
 PICK_DETAIL_POS = (1380, 60)                   # right of the character (x = 640)
 PICK_DETAIL_W = 760
 PICK_ANIMS = ("Sheet", "Det", "Cur", "Mark", "Pulse", "In", "Out", "Dec")
+# The detail text pane per character (T_CellText_ccc). The main build ships those texts empty
+# (build.PICKER_DETAIL_TEXTS, the picker freeze) and, since 2026-11-14, sets this to False:
+# with 115 characters the layout would pass 512 panes, more than an animation key can name
+# (key_set_pane in tools/uiedit.py). True (this file's own build): everything as it was.
+PICK_CELL_TEXT = True
 NO_MARK = PER_SHEET                            # Mark's frame for "no slot of this sheet"
 
 
@@ -1102,8 +1107,9 @@ def make_picker_layout(pk):
                    two_lines(name), v_align=0)
             P.text("T_CellName_%03d" % c, sheet, (dx, dy + 96), (PICK_DETAIL_W, 130), name_size(name), name,
                    big=True, visible=False)
-            P.text("T_CellText_%03d" % c, sheet, (dx, dy - 150), (PICK_DETAIL_W, 220), 42.0, pk.captions[c],
-                   v_align=0, visible=False)
+            if PICK_CELL_TEXT:
+                P.text("T_CellText_%03d" % c, sheet, (dx, dy - 150), (PICK_DETAIL_W, 220), 42.0, pk.captions[c],
+                       v_align=0, visible=False)
     P.insert()
 
     n, sheets = pk.n, pk.sheets
@@ -1127,7 +1133,7 @@ def make_picker_layout(pk):
     # Det
     curves = []
     for c in range(n):
-        for pane in ("T_CellName_%03d" % c, "T_CellText_%03d" % c):
+        for pane in ("T_CellName_%03d" % c, "T_CellText_%03d" % c)[:2 if PICK_CELL_TEXT else 1]:
             curves.append((ed.key(pane, VISIBLE), sparse_state(onehot(PER_SHEET, c % PER_SHEET))))
     ed.add_anim("Det", frames=PER_SHEET - 1, curves=curves)
     # Cur
@@ -1590,7 +1596,7 @@ def check_picker(data, pk):
     for c in range(n):
         s, j = divmod(c, PER_SHEET)
         v = at("Det", j)
-        for pane in ("T_CellName_%03d", "T_CellText_%03d"):
+        for pane in ("T_CellName_%03d", "T_CellText_%03d")[:2 if PICK_CELL_TEXT else 1]:
             cells = [d for d in pk.on_sheet(s) if val(v, pane % d, VISIBLE) == 1.0]
             assert cells == [c] and not ed.pane(pane % c).visible, (c, cells)
             assert parent(pane % c) == "N_Sheet_%02d" % s

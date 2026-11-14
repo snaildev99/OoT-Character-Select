@@ -18,3 +18,9 @@ import voices  # noqa: E402
 voices.EDEN_LOAD = os.path.join(os.environ["APPDATA"], os.environ.get("OOT_MODS_APP", "lichii"), "load", "0400486024DEC000")
 sys.argv = [sys.argv[0], "--install"]
 voices.main()
+# the record of what is installed (tools\modstate.py): the voices folder, as this script's
+import modstate  # noqa: E402
+
+_folder = getattr(voices, "MOD", "Character (voice test)")
+if os.path.isdir(os.path.join(voices.EDEN_LOAD, _folder)):
+    modstate.stamp("voices_install.py", voices.EDEN_LOAD, [_folder])

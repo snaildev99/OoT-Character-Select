@@ -33,6 +33,7 @@ import rstb  # noqa: E402
 import sarcedit  # noqa: E402
 import uiedit  # noqa: E402
 import layout  # noqa: E402
+import modstate  # noqa: E402
 
 ROMFS = nxfmt.ROMFS
 SEQ = os.path.join(ROMFS, "Sequence")
@@ -2839,7 +2840,12 @@ PICKER_HIDDEN = [1]
 # Link, Zelda (child), Saria, Mido, Malon (child), Ruto (child) / Zelda, Sheik, Impa,
 # Ganondorf, Malon, Ruto / Rauru, King Zora, Nabooru, Darunia, Medigoron, Biggoron /
 # Hylia_MM_002, Hylia_MU_005, Hylia_WN_008
-PICKER_ROSTER = [0, 4, 2, 3, 5, 6, 8, 9, 10, 15, 11, 12, 18, 17, 13, 16, 26, 25, 47, 70, 87]
+# Since 2026-11-13 (snaildev: the characters outside Npc_* "are good to add to the main version
+# with dark link and skull kid on the first page"; mods\more_characters.py, numbers 100 and
+# up): Dark Link (100) and Skull Kid (101) close the first sheet, the two giants open the
+# second, the other fourteen follow the townspeople. 37 characters, three sheets.
+PICKER_ROSTER = [0, 4, 2, 3, 5, 6, 8, 9, 10, 15, 11, 12, 18, 17, 13, 16, 100, 101,
+                 26, 25, 47, 70, 87, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115]
 ROSTER_MODEL = r"Model/Player_(Child|Adult)_C(\d{3})\.Player_\1\.bfres\.zs"     # npc_characters.MODEL_FILE
 ROSTER_LEFT_OUT = set()             # the model files the lite build did not write (main)
 # The picker's three-line detail text per character (T_CellText_ccc: stored number, model,
@@ -3184,6 +3190,9 @@ def picker_page(mod="Characters page"):
     import uiedit
     assert SWAP_SLIDES
     ui.BUILD_UI = BUILD                         # where it reads and writes the mods' files
+    # the detail texts are shipped empty (PICKER_DETAIL_TEXTS): since 2026-11-14 their panes are
+    # not made either (115 characters: the layout would pass the 512 panes an animation key can name)
+    ui.PICK_CELL_TEXT = PICKER_DETAIL_TEXTS
     parts = ui.build_custom_parts(ui.PICK_PARTS)
 
     class Picker(ui.Picker):
@@ -3251,7 +3260,7 @@ def picker_page(mod="Characters page"):
                " one picture pane per character" % (n_pictures, pk.n, PORTRAIT_PIXELS))
     if not PICKER_DETAIL_TEXTS:
         detail = [label for label in msgs if label.startswith(PICKER_DETAIL_PANES)]
-        assert len(detail) == pk.n
+        assert len(detail) == (pk.n if ui.PICK_CELL_TEXT else 0)
         msgs = {label: ("" if label in detail else text) for label, text in msgs.items()}
         out.append("  detail texts: %d messages shipped empty" % len(detail))
     ui.sandbox(layouts, msgs)
@@ -3328,6 +3337,13 @@ def lite_roster(npc):
 
 
 def main():
+    """The build (_main), one at a time: tools\modstate.py holds a lock for its run, so that two sessions' builds
+    do not write the same folders at once, and records each install (who, when, which folders)."""
+    with modstate.building(os.environ.get("OOT_SESSION") or os.path.basename(sys.argv[0])):
+        _main()
+
+
+def _main():
     """The full build: the Characters page is the UI session's picker (picker_page), every
     character of the NPC session's ring can be picked (mods\\npc_characters.py as a library:
     its model hook and the folder "NPC characters"), A runs the slide, and the picked
@@ -3357,6 +3373,14 @@ def main():
             fn(mod)
     else:
         import npc_characters as npc
+        # the characters outside Npc_* (enemies, Dark Link, ...: ring numbers 100 and up), the
+        # page zoom for the bodies the Head bone says little about, their portraits and adult
+        # Link's picture in Link's slot: mods\more_characters.py hooks them into the NPC
+        # session's list and our picker from outside (snaildev, 2026-11-13: into the main version)
+        import more_characters
+        more_characters.apply()
+        if not PICKER_ROSTER and not cycle:     # --full: everybody, in its order
+            PICKER_ROSTER = more_characters.full_roster()
         # the page zoom: ours (the NPC session's factors and pivots; glides during a slide)
         npc.zoom_hook = lambda p, n_npc: zoom_blend_hook(p, n_npc, npc)
         npc.check_zoom_hook = lambda p, n_npc, factors: check_zoom_blend(p, n_npc, factors, npc)
@@ -3431,11 +3455,16 @@ def main():
             shutil.rmtree(dst, ignore_errors=True)
             shutil.copytree(os.path.join(BUILD, mod), dst)
             print("  installed ->", dst)
+        removed = []
         for mod in retired:
             dst = os.path.join(EDEN_LOAD, mod)
             if os.path.isdir(dst):
                 shutil.rmtree(dst)
+                removed.append(mod)
                 print("removed retired mod", dst)
+        # the record of this install (tools\modstate.py: `python tools\modstate.py` shows what is active)
+        modstate.stamp(os.environ.get("OOT_SESSION") or os.path.basename(sys.argv[0]), EDEN_LOAD, mods, removed,
+                       "all characters" if not PICKER_ROSTER else "lite roster of %d" % len(PICKER_ROSTER))
 
 
 if __name__ == "__main__":

@@ -8,23 +8,21 @@ A full character select for *The Legend of Zelda: Ocarina of Time* on Switch 2: 
 
 Not affiliated with or endorsed by Nintendo. This is a mod, not the game: you need your own copy of the game, and the mod does nothing without it. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 
-**Status:** early test version (v0.1.3). Back up your save before trying it.
+**Status:** early test version (v0.2.0). Back up your save before trying it.
 
 ## Install
 
-1. Download the mod (pick one):
-   - **[v0.1.3-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3-lite.zip)**: 21 characters, 171 MB.
-   - **[v0.1.3](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3.zip)**: all 99 characters, 361 MB.
+1. Download the mod: **[v0.2.0](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.2.0/OoT-Character-Select-v0.2.0.zip)**, 115 characters, 712 MB. (For a small download there is still the older [v0.1.3-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3-lite.zip): 21 characters, 171 MB, without what v0.2.0 added.)
 2. In your emulator's game list, right-click the game and choose "Open Mod Data Location".
 3. Copy the folder `OoT Character Select` from the zip's `mods` folder into it, and start the game.
 
-It is one mod folder. To remove the mod, delete it. To switch it off without deleting it, use the game's properties, Add-Ons.
+It is one mod folder. If you have an older version, delete its folder first, then copy the new one. To remove the mod, delete it. To switch it off without deleting it, use the game's properties, Add-Ons.
 
 What you need:
 
 - **The game's 1.1.1 update**, the current one. Some emulators list the same update as 2.0.0 or v131072; that is fine, it is the same game data. The mod's code patch only applies to this update, so on any other it simply does nothing.
 - **A Switch 2 emulator that loads mod folders** (romfs files and IPS patches). Made and tested on Lichii and Fritchii.
-- **Longshot and Hookshot (the native PC builds): not for ordinary installs yet.** They compile the game's code ahead of time and leave a mod's code patch out, so on a normal Longshot or Hookshot the Characters page can show up but picking a character does nothing, even after building the game again. It does run on a Longshot built with code mod support, which is still a pull request there ([Longshot 134](https://git.magicbean.dev/MagicBeanDev/Longshot/pulls/134)): played that way on Windows, with v0.1.3. Once that support is in a Longshot release, the mod folder goes into Longshot's `mods` folder and the game is built again. NX2Navi has not been tried.
+- **Longshot and Hookshot (the native PC builds): not for ordinary installs yet.** They compile the game's code ahead of time and leave a mod's code patch out, so on a normal Longshot or Hookshot the Characters page can show up but picking a character does nothing, even after building the game again. It does run on a Longshot built with code mod support, which is still a pull request there ([Longshot 134](https://git.magicbean.dev/MagicBeanDev/Longshot/pulls/134)): played that way on Windows, with v0.1.3. v0.2.0 has not been played there yet; its code patch is larger, so it needs its own look. Once that support is in a Longshot release, the mod folder goes into Longshot's `mods` folder and the game is built again. NX2Navi has not been tried.
 
 Did it run for you, or not? Please [open an issue](https://github.com/snaildev99/OoT-Character-Select/issues) with your emulator, its version and which zip you used. For how a character looks or moves, check the known issues below first.
 
@@ -38,6 +36,7 @@ Planned:
 
 - **Support for other mods.** Characters from other people's mods showing up in the picker beside the stock ones, with credit to their authors.
 - **Equipment.** Trying out modded equipment from the same menu as you play.
+- **More customization:** clothing colours, outfits and accessories in the Customize mode.
 - **More polish on the stock characters:** names, voices and fixes as they are tested.
 
 ## Features
@@ -46,19 +45,23 @@ Planned:
 - **A character picker.** Pages of 18 slots with a portrait for each character, in the style of the equipment page. D-pad or left stick to move, ZL / ZR turn pages, A to select. The right stick rotates the character like in the equipment menu.
 - **A live preview.** The character you pick slides in beside the grid, and the view zooms to fit characters of any size.
 - **In-game swap.** Close the menu and you are that character, in the same spot, facing the same way. There is no reload and no trip to the title screen, only a brief fade-out after closing the menu.
+- **Customize.** X on the Characters page opens Customize for the character shown: hair colour (nine colours), eye colour (seven) and equipment shown or hidden. The choices are kept per character and show in the field as well.
+- **Cloth.** Hair, sleeves, skirts and dresses move as cloth on the characters that have them, and dresses follow the legs.
+- **Voices.** Some characters speak with their own voice instead of Link's, as a child and as an adult.
 - **Your pick is saved** with the save file.
 
 ## How playable the characters are
 
 - **Every character** is a model swap on Link's animations, at the character's own proportions, with basic facial animation and legs that follow slopes and ledges.
-- **Saria** is probably the only one that feels naturally playable right now: she moves well and speaks with her own voice.
-- **Mido**, and the other Kokiri in the full version, play smoothly if you don't mind Link's voice.
-- **Young Zelda** has her own voice and experimental cloth physics on her dress, but her legs still look wrong.
-- **Everyone else:** expect visual faults. Only some of the characters have been tested in play.
-- **The lite roster:** Link, Saria, Mido, young and adult Zelda, Sheik, Impa, Ganondorf, young and adult Malon, young and adult Ruto, Rauru, King Zora, Nabooru, Darunia, Medigoron, Biggoron and three townspeople.
+- **With their own voice:** Saria, young Zelda, Mido, young Ruto, young and adult Malon, Fado, the Great Fairy and Darunia's son. The other Kokiri boys speak with Mido's voice and the other Kokiri girls with Fado's. Everybody else has Link's.
+- **Dresses and skirts** are cloth on 48 characters, with the dress hung on the legs so that running and the sword stance no longer push the legs through. Hair and smaller pieces are cloth on 110 of the 115.
+- **New in v0.2.0, beyond the NPCs:** Dark Link, Skull Kid, Koume and Kotake (two forms), Twinrova, three Iron Knuckles, a Gibdo, a ReDead, two Moblins, a Wolfos, a Lizalfos, a cow, and Link as he looks in the opening. They are enemies' and other actors' models on Link's animations: playable, and odd in places.
+- **Everyone else:** expect visual faults. Only some of the 115 have been tested in play.
 
 ## Good to know
 
+- **New in v0.2.0:** 16 more characters (115 in all, on seven pages), the Customize mode, cloth for nearly every character with the dresses following the legs, and voices for nine characters at both ages. The download is one zip now; there is no lite version of it.
+- **Customize is unfinished.** Hair colour, eye colour and the equipment switch work. Clothing colours, outfits and accessories are not in yet. The choices are kept while the game runs but are not written to the save file yet, so they are gone after a restart. Hair colours are recoloured copies of each character's own hair texture; a few characters have no hair texture to recolour. While the mod is on, three of the amiibo marker's sounds are used as the mode's menu sounds.
 - **Fixed in v0.1.3: a crash on Longshot and Hookshot builds with code mods.** One of the mod's code routines was written in a way the console and the emulators accept and those builds do not; picking a character crashed there. On an emulator nothing changes from v0.1.2.
 - **Fixed in v0.1.2: the adult did not load.** In v0.1.1, going through the Door of Time ended on a loading screen that never finished. If you have v0.1.1, replace the folder with the new one.
 - **Known issue on Longshot and Hookshot builds with code mods: switching the mod Off leaves half of it.** The mod's code patch is built into the game, so it stays until the game is built again, while the mod's other files stop loading. The game runs, but the − menu's tabs are drawn wrong. For a clean off, build the game again with the mod switched off or removed; switching it back On needs no build. On an emulator, Off is clean.
@@ -79,12 +82,13 @@ Planned:
 
 ## Is it safe to install?
 
-The mod is data only. It holds what it adds to the game: the Characters page and its menu tab, the picker with a portrait for each character, the characters set up as playable models, two characters' voices, and one small code patch (`.ips`) that runs inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If something claiming to be this mod contains anything else, do not use it.
+The mod is data only. It holds what it adds to the game: the Characters page and its menu tab, the picker with a portrait for each character, the characters set up as playable models with their cloth files, recoloured hair textures for the Customize mode, voices for some characters, and one code patch (`.ips`) that runs inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If something claiming to be this mod contains anything else, do not use it.
 
 The mod is downloaded from this repository's [downloads page](https://github.com/snaildev99/OoT-Character-Select/releases). The SHA-256 sum of each zip:
 
 | Package | SHA-256 |
 | --- | --- |
+| `OoT-Character-Select-v0.2.0.zip` (115 characters) | `a7d2f04a4ed17dde3c738b55f70564016f91e9da94efc10d8ccd113e53f5135b` |
 | `OoT-Character-Select-v0.1.3-lite.zip` | `ff60cd9bd4f7c5ca1cdbfbb2242fd8fd2dfa08e221e856dd1c2c65d64dd2d5e1` |
 | `OoT-Character-Select-v0.1.3.zip` (all 99 characters) | `9f3fb3d6ffcf4a6bfc9d7b5655ba55a22fe58cae96eaa08986e6fee255079a4b` |
 | `OoT-Character-Select-v0.1.2-lite.zip` | `45bf99f916218098713576e087c5725a19d69090ca01c76de8da41db4a2aac5b` |
@@ -101,8 +105,8 @@ Each package comes with `SHA256SUMS.txt` (the sum of every file) and `patch-list
 
 - **Human work.** The idea, the design of the page and the picker, every decision between versions, and all testing in the game are the author's. Each feature was played and approved in game before it went in.
 - **Code.** The build scripts, tools and code patches were written with heavy help from Claude (Anthropic), under the author's direction, and checked in game by the author. All of it is in this repository.
-- **Voices.** Saria's and young Zelda's voices were made with a locally run voice conversion model, [Seed-VC](https://github.com/Plachtaa/seed-vc) by Plachtaa, with its published pretrained weights (not trained or fine-tuned by the author). The input is Link's own voice clips from the game; the reference voice for each character is that character's own voice clips from the game. No other voice material was used.
-- **Visuals.** No generated images. The portraits are captures of the game's own models, taken in game and cut out by a script.
+- **Voices.** The characters' voices (Saria, young Zelda, Mido, young Ruto, young and adult Malon, Fado, the Great Fairy, Darunia's son) were made with a locally run voice conversion model, [Seed-VC](https://github.com/Plachtaa/seed-vc) by Plachtaa, with its published pretrained weights (not trained or fine-tuned by the author). The input is Link's own voice clips from the game; the reference voice for each character is that character's own voice clips from the game. No other voice material was used.
+- **Visuals.** No generated images. The portraits are captures of the game's own models, taken in game and cut out by a script. The hair colours are the game's own hair textures with their colours shifted by a script (`tools/texrecolor.py`).
 - **This page.** The text was drafted with Claude and edited by the author.
 
 Mod and tools by snaildev99. *The Legend of Zelda: Ocarina of Time* and its characters belong to Nintendo.
@@ -119,7 +123,7 @@ set OOT_IMAGE=C:\path\to\image.bin
 venv\Scripts\python mods\build.py
 ```
 
-The build writes several working folders to `build\` (the 21 characters of the lite version; `--full` builds all 99). `--install` also copies them into the emulator's mods folder (`%APPDATA%\lichii\load\0400486024DEC000`; set `OOT_MODS_APP=eden` for an emulator that uses `%APPDATA%\eden`). `tools\package.py` merges the working folders into the one mod folder. The voices folder is built apart by `mods\voices.py`, which needs a voice conversion setup of its own (`docs/NOTES.md`, voices section).
+The build writes several working folders to `build\` (a short roster of 37 characters by default; `--full` builds all 115, which is what the release is). `--install` also copies them into the emulator's mods folder (`%APPDATA%\lichii\load\0400486024DEC000`; set `OOT_MODS_APP=eden` for an emulator that uses `%APPDATA%\eden`). `tools\package.py` merges the working folders into the one mod folder. The voices folder is built apart by `mods\voices.py`, which needs a voice conversion setup of its own (`docs/NOTES.md`, voices section), and the Customize mode's folder by `mods\customize.py`, which reads the folders already installed.
 
 Two inputs are not in this repository, and the full build currently expects both:
 
@@ -143,7 +147,7 @@ Everything is built by Python scripts from the untouched game files; nothing is 
 
 ## Layout of the repository
 
-- `mods/build.py`: the build (`mods/ui_sandbox.py`, `mods/npc_characters.py` and `mods/field_swap.py` are used by it as libraries and can each build a test variant).
+- `mods/build.py`: the build (`mods/ui_sandbox.py`, `mods/npc_characters.py`, `mods/more_characters.py` and `mods/field_swap.py` are used by it as libraries and can each build a test variant). `mods/customize.py` builds the Customize mode over the installed folders, `mods/voices.py` the voices.
 - `tools/`: file format readers and writers, the patcher, the packager, and read-only debug helpers.
 - `docs/NOTES.md`: the working notes.
 - `docs/images/`: the screenshots on this page.

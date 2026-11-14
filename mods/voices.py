@@ -3,6 +3,8 @@
     venv-voice\\Scripts\\python.exe mods\\voices.py [--install] [--redo] [--more N]
     venv-voice\\Scripts\\python.exe mods\\voices.py --everyone [voice] [--install]
     venv-voice\\Scripts\\python.exe mods\\voices.py --remove
+    venv-voice\\Scripts\\python.exe mods\\voices.py --install-only     the folder as last built (seconds)
+    (--age child|adult and voice names limit --redo / --more)
 
 The default build is the test folder MOD (README, mods list and voices section):
 
@@ -55,6 +57,7 @@ import bwav  # noqa: E402
 import byml  # noqa: E402
 import nxfmt  # noqa: E402
 import nxpack  # noqa: E402
+import modstate  # noqa: E402  (tools\modstate.py: one build at a time, the record of what is installed)
 
 BANK = "Player_Child"
 # voice type -> (two characters that name its stream files, the characters that speak
@@ -64,10 +67,20 @@ VOICES = {
     "Custom_Zelda_Child": ("Zc", ["Zelda (child)"]),
     "Custom_Ruto_Child": ("Rc", ["Ruto (child)"]),
     "Malon_Child": ("Mc", ["Malon (child)"]),
-    "Malon_Adult": ("Ma", ["Malon"]),
-    "Kokiri_Girl_Spry": ("Ks", ["Fado", "Kokiri_WC_002"]),      # a shared type: both models have only it
-    "Mido": ("Mi", ["Mido"]),
+    "Malon_Adult": ("Ma", ["Malon"], "adult"),                  # a grown-up: adult Link's clips are the base
+    "Kokiri_Girl_Spry": ("Ks", ["Fado", "Kokiri_WC_001", "Kokiri_WC_002"]),      # snaildev, 2026-11-13: every other Kokiri girl has Fado's
+    "Mido": ("Mi", ["Mido", "Kokiri_MC_001", "Kokiri_MC_002", "Kokiri_MC_003", "Kokiri_MC_004"]),      # and every other Kokiri boy Mido's
+    "GreatFairy": ("Gf", ["Great Fairy"], "adult"),             # snaildev, 2026-11-13: these two on adult Link's base
+    "DaruniaJr": ("Dj", ["Darunia's son"], "adult"),
 }
+# Both ages (2026-11-13): a voice has one archive per age of Link, each made from that
+# age's own clips. A voice's base age (third entry above, "child" when left out) is the
+# Link whose pitch it keeps; the other age's clips are moved by the distance between the
+# two Links (adult Link is 2.6 semitones below child Link; the model takes whole semitones),
+# so a character sounds the same whichever Link plays it.
+BANKS = {"child": "Player_Child", "adult": "Player_Adult"}
+ARCHIVES = {"child": "PlayerVoice_Child_%s.bars", "adult": "PlayerVoice_Adult_%s.bars"}
+APART = 3
 MOD = "Character (voice test)"      # "(" sorts before every letter: its size table is the one taken
 ARCHIVE = "PlayerVoice_Child_%s.bars"
 LIST = "%s_V%02X"                   # the player's list name, the stored character number
@@ -88,7 +101,10 @@ DEAD_SHA1 = "b946b747bcd55cd13e0e16a78a122078c7e79340"      # its bytes in game 
 VT_NAME, VT_ONESHOT = 0x98, 0x138   # a node class's vtable: its name getter, its one-shot body
 BUILD = os.path.join(ROOT, "build-voice", "mod")
 CACHE = os.path.join(ROOT, "build-voice", "cache")
-EDEN_LOAD = os.path.join(os.environ["APPDATA"], "eden", "load", "0400486024DEC000")
+# the mods folder the normal build installs into (as build.EDEN_LOAD: Lichii's since 2026-11-12;
+# OOT_MODS_APP=eden gives Fritchii's)
+EDEN_LOAD = os.path.join(os.environ["APPDATA"], os.environ.get("OOT_MODS_APP", "lichii"), "load", "0400486024DEC000")
+SESSION = os.environ.get("OOT_SESSION", "voices")
 EMULATORS = ("lichii.exe", "eden.exe", "yuzu.exe")
 FOLDER = "Voice test (%s)"
 RATE = 48000
@@ -107,8 +123,18 @@ def label(voice):
     return voice.replace("Custom_", "").replace("_", " ")
 
 
-def assets():
-    names, d = bwav.bars(BANK)
+def base_of(voice):
+    v = VOICES.get(voice, ())
+    return v[2] if len(v) > 2 else "child"
+
+
+def shift_for(voice, age):
+    """Semitones the conversion moves this age's clips by."""
+    return 0 if base_of(voice) == age else APART if age == "adult" else -APART
+
+
+def assets(age="child"):
+    names, d = bwav.bars(BANKS[age])
     return sorted(n for n in names if n.startswith("Vo_")), names, d
 
 
@@ -198,21 +224,25 @@ def lined_up(out, pos, n, original, reach=8, hop=240):
 
 
 # ---------------------------------------------------------------- step 1: convert
-def convert(voice, redo=False, more=0):
+def convert(voice, redo=False, more=0, age="child"):
     """`more`: that many further tries (new seeds) for the clips of an existing cache
     that failed the check."""
-    cache = os.path.join(CACHE, voice, "child")
+    cache = os.path.join(CACHE, voice, age)
     report_path = os.path.join(cache, "report.json")
+    shift = shift_for(voice, age)
     if redo:
         shutil.rmtree(cache, ignore_errors=True)
-    vo, names, d = assets()
+    vo, names, d = assets(age)
     old = json.load(open(report_path)) if os.path.exists(report_path) else None
+    if old and old.get("shift", 0) != shift:        # made for another pitch: start over
+        shutil.rmtree(cache, ignore_errors=True)
+        old = None
     if old and not more:
         return tidy(old, vo, names, d)
     os.makedirs(cache, exist_ok=True)
     import librosa, soundfile, torch
     import voiceai
-    clips = {a: bwav.clip(a, BANK)[0][0].astype(np.float64) for a in vo}
+    clips = {a: bwav.clip(a, BANKS[age])[0][0].astype(np.float64) for a in vo}
     same = twins(vo, names)
     if old:
         report = tidy(old, vo, names, d)
@@ -234,11 +264,12 @@ def convert(voice, redo=False, more=0):
             else:
                 todo.append(a)
     report["tries"] = seed0 - 1337 + tries
+    report["shift"] = shift
     # as much of the voice as fits beside a row (Saria has 21.7 s in all: unchanged by the limit)
     ref, rate, used = voiceai.reference(voice, seconds=30 - ROW - 0.6)
     if len(ref) / rate + ROW + 0.5 > 30:        # the last clip's gap went over (Malon_Adult)
         ref, rate, used = voiceai.reference(voice, seconds=30 - ROW - 0.75)
-    work = os.path.join(ROOT, "build-voice", "ai", "work", voice)
+    work = os.path.join(ROOT, "build-voice", "ai", "work", voice if age == "child" else voice + "_" + age)
     os.makedirs(work, exist_ok=True)
     ref_path = os.path.join(work, "reference.wav")
     bwav.write_wav(ref_path, ref[None, :], rate)
@@ -252,7 +283,7 @@ def convert(voice, redo=False, more=0):
     import inference
     ns = Namespace(source=None, target=ref_path, output=os.path.join(work, "out"), diffusion_steps=STEPS,
                    length_adjust=1.0, inference_cfg_rate=0.7, f0_condition=True, auto_f0_adjust=False,
-                   semi_tone_shift=0, checkpoint=None, config=None, fp16=True)
+                   semi_tone_shift=shift, checkpoint=None, config=None, fp16=True)
     models = inference.load_models(ns)
     inference.load_models = lambda args: models
 
@@ -301,8 +332,8 @@ def convert(voice, redo=False, more=0):
                 why = None
                 if match < MIN_MATCH:
                     why = "loudness curve match %.2f" % match
-                elif semis is not None and abs(semis) > MAX_PITCH_OFF:
-                    why = "pitch %+.1f semitones off" % semis
+                elif semis is not None and abs(semis - shift) > MAX_PITCH_OFF:
+                    why = "pitch %+.1f semitones off" % (semis - shift)
                 if why:
                     failed.append((a, why))
                     continue
@@ -442,13 +473,24 @@ def stream_name(voice, asset):
     return "V" + VOICES[voice][0] + asset[3:]
 
 
-def voice_archive(voice, report):
+_PACKED = {}
+
+
+def packed(voice, report, age):
+    """voice_archive, once per run: prepare() calls it before the build lock is taken
+    (the encoding is 40 s per archive), build() gets the result."""
+    if (voice, age) not in _PACKED:
+        _PACKED[voice, age] = voice_archive(voice, report, age)
+    return _PACKED[voice, age]
+
+
+def voice_archive(voice, report, age="child"):
     """-> (the voice's archive, {stream file name: bytes}). One asset per converted clip
     (and per second name of it), under Link's name hash: his metadata block (for a
     stream with the stream's own name in it) and the converted clip in his BWAV's exact
     shape (a whole clip, or a stream's first 0.30 s with the rest in the stream file)."""
-    cache = os.path.join(CACHE, voice, "child")
-    vo, names, d = assets()
+    cache = os.path.join(CACHE, voice, age)
+    vo, names, d = assets(age)
     blocks = {h: amta for h, amta, _blob in bwav.bars_parts(d)[0]}
     done = sorted(report["converted"])
     pcm = [np.load(os.path.join(cache, a + ".npy")) for a in done]
@@ -782,6 +824,29 @@ def covers(ours, theirs, own):
         all(ours.names.get(k) == v or (k in own and ours.names.get(k, 0) > v) for k, v in theirs.names.items())
 
 
+def sorts_before(folder):
+    return not (MOD < folder and MOD.lower() < folder.lower())
+
+
+def in_the_way():
+    """Installed folders that sort before ours and whose size table lacks an entry of ours
+    (the customize session's folder merges the installed tables when IT is installed, so
+    after a voice build with new or larger files its table is too small until that session
+    installs again). -> their names; empty = our install is fine as it is."""
+    import rstb
+    ours = rstb.Rstb(nxfmt.read(os.path.join(BUILD, MOD, "romfs", rstb.PATH.replace("/", os.sep))))
+    own = [BARSLIST[:-3]] + ["Sound/Resource/" + a % label(v).replace(" ", "_") for v in VOICES for a in ARCHIVES.values()]
+    out = []
+    for folder in sorted(os.listdir(EDEN_LOAD)) if os.path.isdir(EDEN_LOAD) else []:
+        p = os.path.join(EDEN_LOAD, folder, "romfs", rstb.PATH.replace("/", os.sep))
+        if folder == MOD or not sorts_before(folder) or not os.path.exists(p):
+            continue
+        theirs = rstb.Rstb(nxfmt.read(p))
+        if any((theirs.get(path) or 0) < ours.get(path) for path in own):
+            out.append(folder)
+    return out
+
+
 def installed_table():
     """(the size table the installed folders ship, the folder it was read from), or
     (None, None) when none ships one. All copies must be the same table."""
@@ -789,8 +854,8 @@ def installed_table():
     table, where = None, None
     for folder in sorted(os.listdir(EDEN_LOAD), key=str.lower) if os.path.isdir(EDEN_LOAD) else []:
         p = os.path.join(EDEN_LOAD, folder, "romfs", rstb.PATH.replace("/", os.sep))
-        if folder == MOD or not os.path.exists(p):
-            continue
+        if folder == MOD or not os.path.exists(p) or sorts_before(folder):
+            continue        # (a folder before ours lays a merged table over everything: in_the_way())
         data = nxfmt.read(p)
         if table is None:
             table, where = data, folder
@@ -806,16 +871,17 @@ def build():
     sound = os.path.join(out, "romfs", "Sound", "Resource")
     os.makedirs(os.path.join(sound, "Stream"))
     numbers = ring()
-    vo, names, d = assets()
     stock_raw = open(os.path.join(bwav.SOUND, BANK + ".bars.zs"), "rb").read()
     lines, lists, sizes, built = [], {}, {}, {}
-    for voice, (_code, characters) in sorted(VOICES.items()):
-        named = [a for a in sys.argv[1:] if a in VOICES]        # --redo / --more for these voices only
-        mine = not named or voice in named
+    only_age = sys.argv[sys.argv.index("--age") + 1] if "--age" in sys.argv else None
+    for voice, age in [(v, a) for v in sorted(VOICES) for a in ("child", "adult")]:
+        characters, bank = VOICES[voice][1], BANKS[age]
+        named = [a for a in sys.argv[1:] if a in VOICES]        # --redo / --more for these voices (and --age) only
+        mine = (not named or voice in named) and only_age in (None, age)
         report = convert(voice, mine and "--redo" in sys.argv,
-                         int(sys.argv[sys.argv.index("--more") + 1]) if mine and "--more" in sys.argv else 0)
-        archive, streams = voice_archive(voice, report)
-        name = ARCHIVE % label(voice).replace(" ", "_")
+                         int(sys.argv[sys.argv.index("--more") + 1]) if mine and "--more" in sys.argv else 0, age)
+        archive, streams = packed(voice, report, age)
+        name = ARCHIVES[age] % label(voice).replace(" ", "_")
         with open(os.path.join(sound, name + ".zs"), "wb") as f:
             f.write(nxpack.zs_compress_like(archive, stock_raw))
         for s, blob in streams.items():
@@ -823,12 +889,12 @@ def build():
                 f.write(blob)
         sizes["Sound/Resource/" + name] = ((len(archive) + 31) & ~31) + 616     # the largest the game's archives have
         for c in characters:
-            lists[LIST % (BANK, numbers[c])] = (BANK, name)
-        built[voice] = (name, report, archive, streams)
-        lines.append("%s: %s, %.1f MB, %d stream files (%.1f MB); characters: %s" % (
-            label(voice), name, len(archive) / 1e6, len(streams), sum(map(len, streams.values())) / 1e6,
-            ", ".join("%s = %d" % (c, numbers[c]) for c in characters)))
-        lines += ["  " + line for line in check_voice(voice, *built[voice])]
+            lists[LIST % (bank, numbers[c])] = (bank, name)
+        built[voice, age] = (name, report, archive, streams)
+        lines.append("%s as %s Link (%+d semitones): %s, %.1f MB, %d stream files (%.1f MB); characters: %s" % (
+            label(voice), age, shift_for(voice, age), name, len(archive) / 1e6, len(streams),
+            sum(map(len, streams.values())) / 1e6, ", ".join("%s = %d" % (c, numbers[c]) for c in characters)))
+        lines += ["  " + line for line in check_voice(voice, *built[voice, age], age)]
     # the archive list
     new_list, expect = barslist(lists)
     raw = open(os.path.join(bwav.ROMFS, BARSLIST.replace("/", os.sep)), "rb").read()
@@ -874,18 +940,21 @@ def build():
         patch.cave_ptr - DEAD[0], DEAD[0], patch.cave_ptr, DEAD_NODE, DEAD[0], DEAD[1],
         ", ".join("%x" % s for s in LOOKUP_SITES), check_patch(patch)))
     lines.append(fits_installed())
-    for voice, (_name, report, _archive, _streams) in sorted(built.items()):
+    for (voice, age), (_name, report, _archive, _streams) in sorted(built.items()):
         if report["kept"]:
-            lines.append("%s, clips that stay Link's:" % label(voice))
+            lines.append("%s as %s Link, clips that stay Link's:" % (label(voice), age))
             lines += ["    %-44s %s" % (a, why) for a, why in sorted(report["kept"].items())]
     return lines
 
 
-def check_voice(voice, name, report, archive, streams):
+def check_voice(voice, name, report, archive, streams, age="child"):
     """Read a built voice archive and its stream files back from the folder."""
     out = os.path.join(BUILD, MOD, "romfs", "Sound", "Resource")
-    cache = os.path.join(CACHE, voice, "child")
-    vo, names, d = assets()
+    cache = os.path.join(CACHE, voice, age)
+    vo, names, d = assets(age)
+    bank = BANKS[age]
+    mark = "Vo_Pl%s_" % age.capitalize()
+    assert all(a.startswith(mark) for a in vo)      # what tells the two ages' stream files apart
     new = nxfmt.read(os.path.join(out, name + ".zs"))
     assert new == archive
     parts, extra = bwav.bars_parts(new)
@@ -932,13 +1001,13 @@ def check_voice(voice, name, report, archive, streams):
             got = bwav.decode(new, o)[0][0].astype(np.float64) * 32768
         noise = ((got - want) ** 2).mean()
         snrs.append(10 * np.log10(max(1e-9, (want ** 2).mean()) / max(1e-9, noise)))
-    on_disk = set(os.path.basename(p)[:-5] for p in glob.glob(os.path.join(out, "Stream", "V%s*.bwav" % VOICES[voice][0])))
+    on_disk = set(os.path.basename(p)[:-5] for p in glob.glob(os.path.join(out, "Stream", "V%s%s*.bwav" % (VOICES[voice][0], mark[3:]))))
     assert on_disk == files == set(streams), "stream files and the archive's streams differ"
     # the game's search, as its code does it (README, voices section): the list's archives
     # in order, the first whose hash table has the name's crc32 answers
     order = [set(h for h, _a, _b in parts)]
-    for other in ("Player", BANK):
-        dd = d if other == BANK else nxfmt.read(os.path.join(bwav.SOUND, other + ".bars.zs"))
+    for other in ("Player", bank):
+        dd = d if other == bank else nxfmt.read(os.path.join(bwav.SOUND, other + ".bars.zs"))
         m = struct.unpack_from("<I", dd, 12)[0]
         order.append(set(struct.unpack_from("<%dI" % m, dd, 16)))
     first = {a: next(i for i, hashes in enumerate(order) if zlib.crc32(a.encode()) in hashes) for a in vo}
@@ -960,22 +1029,27 @@ def refuse_while_running():
 
 
 def remove():
+    gone = []
     for old in glob.glob(os.path.join(EDEN_LOAD, FOLDER % "*")) + [os.path.join(EDEN_LOAD, MOD)]:
         if os.path.isdir(old):
             shutil.rmtree(old)
+            gone.append(os.path.basename(old))
             print("removed", old)
+    return gone
 
 
 def fits_installed():
     """MOD against the folders that are installed now. -> a line for the report."""
     import exepatch, rstb
     others = [f for f in os.listdir(EDEN_LOAD) if os.path.isdir(os.path.join(EDEN_LOAD, f)) and f != MOD]
-    # our size table must be the one the emulator takes, and must have all of theirs
-    assert all(MOD < f and MOD.lower() < f.lower() for f in others), "a folder sorts before ours"
+    # our size table must be the one the emulator takes (or a folder before ours has our
+    # entries in its own), and must have all of theirs
+    before = [f for f in others if sorts_before(f)]
+    blocked = in_the_way()
     base, where = installed_table()
     ours = rstb.Rstb(nxfmt.read(os.path.join(BUILD, MOD, "romfs", rstb.PATH.replace("/", os.sep))))
     if base:
-        own = [BARSLIST[:-3]] + ["Sound/Resource/" + ARCHIVE % label(v).replace(" ", "_") for v in VOICES]
+        own = [BARSLIST[:-3]] + ["Sound/Resource/" + a % label(v).replace(" ", "_") for v in VOICES for a in ARCHIVES.values()]
         assert covers(ours, rstb.Rstb(base), own), "the installed size table changed since this build: build again"
     # no byte of the executable patched twice, no file of another folder shadowed but the size table
     mine = ips_ranges(os.path.join(BUILD, MOD, "exefs", exepatch.BUILD_ID + ".ips"))
@@ -992,25 +1066,37 @@ def fits_installed():
             if rel.replace(os.sep, "/") != rstb.PATH:
                 clash = [f for f in others if os.path.exists(os.path.join(EDEN_LOAD, f, "romfs", rel))]
                 assert not clash or all(f.startswith(FOLDER % "") for f in clash), "%s is also in %s" % (rel, clash)
-    return "against the %d installed folders: ours sorts first, its size table has all of theirs, " \
-           "no byte shared with their %d code patches, no file of theirs replaced" % (len(others), patches)
+    line = "against the %d installed folders: %s, its size table has all of theirs, " \
+           "no byte shared with their %d code patches, no file of theirs replaced" % (
+               len(others), "ours sorts first" if not before else "%s before ours %s our files' sizes" % (
+                   ", ".join(before), "LACKS" if blocked else "has"), patches)
+    if blocked:
+        line += "\n  NOT INSTALLABLE beside %s as it is installed now: take it out first (its own script's --remove; " \
+                "its session's install puts it back with our sizes)" % ", ".join(blocked)
+    return line
 
 
 def install(mod):
     refuse_while_running()
-    remove()
+    if mod == MOD and in_the_way():         # before anything is touched
+        print("  " + fits_installed())
+        sys.exit(1)
+    gone = remove()
     if mod == MOD:
         print("  " + fits_installed())
     dst = os.path.join(EDEN_LOAD, mod)
     shutil.copytree(os.path.join(BUILD, mod), dst)
+    modstate.stamp(SESSION, EDEN_LOAD, [mod], removed=[g for g in gone if g != mod])
     print("installed ->", dst)
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("-") and not a.isdigit()]
+    args = [a for a in sys.argv[1:] if not a.startswith("-") and not a.isdigit() and a not in BANKS]
     if "--remove" in sys.argv:
         refuse_while_running()
-        remove()
+        gone = remove()
+        if gone:
+            modstate.stamp(SESSION, EDEN_LOAD, [], removed=gone, note="voice folders removed")
         return
     if "--everyone" in sys.argv:
         voice = args[0] if args else "Custom_Saria"
@@ -1034,5 +1120,31 @@ def main():
         install(mod)
 
 
+def prepare():
+    """The conversions (minutes to an hour, into this session's own cache) and the
+    encoding (40 s per archive), before the build lock is taken: the other sessions'
+    builds must not wait for them. The lock then covers writing and checking the folder."""
+    if "--remove" in sys.argv or "--everyone" in sys.argv:
+        return
+    named = [a for a in sys.argv[1:] if a in VOICES]
+    only_age = sys.argv[sys.argv.index("--age") + 1] if "--age" in sys.argv else None
+    more = int(sys.argv[sys.argv.index("--more") + 1]) if "--more" in sys.argv else 0
+    for voice in sorted(VOICES):
+        for age in BANKS:
+            mine = (not named or voice in named) and only_age in (None, age)
+            packed(voice, convert(voice, mine and "--redo" in sys.argv, more if mine else 0, age), age)
+    # done here: the build below finds everything in the cache
+    if "--more" in sys.argv:
+        del sys.argv[sys.argv.index("--more"):sys.argv.index("--more") + 2]
+    if "--redo" in sys.argv:
+        sys.argv.remove("--redo")
+
+
 if __name__ == "__main__":
-    main()
+    if "--install-only" in sys.argv:        # the folder as it was last built (checked against what is installed now)
+        with modstate.building(SESSION):
+            install(MOD)
+        sys.exit(0)
+    prepare()
+    with modstate.building(SESSION):
+        main()

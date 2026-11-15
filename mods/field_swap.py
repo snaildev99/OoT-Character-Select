@@ -133,6 +133,7 @@ def _image_facts(img):
 STASH_SIZE = 0x80
 ST_VALID, ST_DELETE_CALLS, ST_POS, ST_ROT, ST_MGR, ST_ACTOR, ST_WAKE_CALLS, ST_SWAPS = \
     0x00, 0x04, 0x08, 0x14, 0x38, 0x40, 0x48, 0x4C
+ST_TRIES = 0x50                     # QUICK only: wake calls since the last delete that did not finish
 
 
 def stash_address(img):
@@ -235,6 +236,23 @@ def check_dead_code(img):
 # component [[actor + 0x270] + 0x360]. A leaf: x20 = manager; changes x8-x11, x15.
 ACTOR_COMPONENTS, COMPONENT_CAMERA_TARGET, COMPONENT_CAMERA, CAMERA_LAST_TARGET = 0x270, 0x368, 0x360, 0xFE0
 CAMERA_SYSTEM = 0x84E40C08
+
+# QUICK only (`--quick`, 2026-11-14, snaildev: no fade, a quicker swap): the swap runs while the
+# menu still covers the screen (the menu hides the field's layer and shows a captured frame,
+# PlusMinusPauseCapture.module), so under the menu's own pause as well. Whether the wake can
+# finish under that pause is not known, so a wake node gives up once after WAKE_LIMIT calls
+# that did not finish (counted at ST_TRIES, cleared by every delete): the first wake node
+# (under the menu) then ends with the place still remembered, and the second one (after the
+# menu has closed) polls until it is done. A wake that finishes is not counted.
+WAKE_LIMIT = 30
+QUICK_CODE = """
+    fs_wait:
+        ldr w9, [x21, #{tries:#x}]
+        add w9, w9, #1
+        str w9, [x21, #{tries:#x}]
+        cmp w9, #{limit}
+        b.eq fs_finish
+        b fs_out""".format(tries=ST_TRIES, limit=WAKE_LIMIT)
 KEEP_CODE = """
     fs_keep:
         ldrb w8, [x20, #0x70]
@@ -338,7 +356,7 @@ def field_patch():
         cbnz w8, fs_wake
         ldr w9, [x21, #{s_dcalls:#x}]
         add w9, w9, #1
-        str w9, [x21, #{s_dcalls:#x}]
+        str w9, [x21, #{s_dcalls:#x}]{delete_reset}
         mov x0, x20
         bl fs_stash
         mov x0, x20
@@ -364,7 +382,7 @@ def field_patch():
         add x1, x21, #8
         add x2, x21, #0x14
         bl #{wake:#x}
-        tbz w0, #0, fs_out
+        tbz w0, #0, {wake_fail}
         str wzr, [x21]
         ldr w9, [x21, #{s_swaps:#x}]
         add w9, w9, #1
@@ -414,8 +432,10 @@ def field_patch():
         mov w13, #1
         str w13, [x21]
     fss_out:
-        ret{keep_code}
+        ret{keep_code}{quick_code}
     """.format(keep_call="\n        bl fs_keep" if KEEP_CAMERA else "", keep_code=KEEP_CODE if KEEP_CAMERA else "",
+               delete_reset="\n        str wzr, [x21, #%#x]" % ST_TRIES if QUICK else "",
+               wake_fail="fs_wait" if QUICK else "fs_out", quick_code=QUICK_CODE if QUICK else "",
                holder=RESIDENT_HOLDER, mgr=RESIDENT_MGR, adult=DELETE_ADULT_LIST, child=DELETE_CHILD_LIST,
                wake=CANCEL_SLEEP, page=stash & ~0xFFF, lo=stash & 0xFFF, tr=ACTOR_TRANSFORM, st=ACTOR_STATE,
                ns=NODE_STATE, ni=NODE_INPUT, s_mgr=ST_MGR, s_actor=ST_ACTOR, s_dcalls=ST_DELETE_CALLS,
@@ -537,8 +557,13 @@ def check_patch(p):
         raw = bytes(mu.mem_read(p.stash, STASH_SIZE))
         valid, d_calls = struct.unpack_from("<II", raw, 0)
         mgr, actor, w_calls, swaps = struct.unpack_from("<QQII", raw, ST_MGR)
-        assert raw[ST_SWAPS + 4:] == b"\0" * (STASH_SIZE - ST_SWAPS - 4)
+        assert raw[ST_SWAPS + 4:ST_TRIES] == b"\0" * (ST_TRIES - ST_SWAPS - 4)
+        assert raw[ST_TRIES + 4:] == b"\0" * (STASH_SIZE - ST_TRIES - 4)
+        assert QUICK or raw[ST_TRIES:ST_TRIES + 4] == b"\0" * 4         # only QUICK counts tries
         return dict(valid=valid, place=raw[ST_POS:ST_MGR], mgr=mgr, actor=actor, deletes=d_calls, wakes=w_calls, swaps=swaps)
+
+    def tries():
+        return struct.unpack("<I", bytes(mu.mem_read(p.stash + ST_TRIES, 4)))[0]
 
     def clear():
         mu.mem_write(p.stash, b"\0" * STASH_SIZE)
@@ -641,6 +666,43 @@ def check_patch(p):
             assert bytes(mu.mem_read(HEAP + 0x4000, 0x6000)) == bytes(want), case
             mu.mem_write(ACTOR + ACTOR_COMPONENTS, struct.pack("<Q", 0))
     mu.mem_write(CAMERA_SYSTEM, struct.pack("<Q", 0))
+    # QUICK: a delete clears the tries; a wake node that keeps failing ends once, on its
+    # WAKE_LIMIT-th failed call, with the place still remembered; the next wake node (and any
+    # after it) polls until the wake finishes. Without QUICK nothing ever gives up.
+    for is_child in (1, 0):
+        gone = ("adult", "child") if is_child else ("child", "adult")
+        clear()
+        mu.mem_write(p.stash + ST_TRIES, struct.pack("<I", 77))      # left from an earlier swap
+        manager(is_child, state=6)
+        t3 = transform(4.0 + is_child)
+        answers.update({gone[0]: 1, gone[1]: 1})
+        assert run(NODE_ENTER, D)
+        assert tries() == (0 if QUICK else 77)
+        if not QUICK:
+            mu.mem_write(p.stash + ST_TRIES, struct.pack("<I", 0))
+        manager(is_child, state=6, ident=0x3333)
+        answers["wake"] = 0
+        first = [run(NODE_ENTER, W)] + [run(NODE_UPDATE, W) for _ in range(WAKE_LIMIT + 4)]
+        if QUICK:
+            assert first == [False] * (WAKE_LIMIT - 1) + [True] + [False] * 5 and tries() == WAKE_LIMIT + 5
+        else:
+            assert not any(first) and tries() == 0
+        assert stash() == dict(valid=1, place=t3, mgr=MGR, actor=ACTOR, deletes=1, wakes=WAKE_LIMIT + 5, swaps=0)
+        # the second node: polls on past the limit, ends when the wake does
+        assert not run(NODE_ENTER, W) and not any(run(NODE_UPDATE, W) for _ in range(WAKE_LIMIT))
+        answers["wake"] = 1
+        assert run(NODE_UPDATE, W)
+        assert stash() == dict(valid=0, place=t3, mgr=MGR, actor=ACTOR, deletes=1, wakes=2 * WAKE_LIMIT + 7, swaps=1)
+        assert tries() == (2 * WAKE_LIMIT + 6 if QUICK else 0)
+        # a wake that finishes at once is not counted, and a later wake node ends at once too
+        clear()
+        manager(is_child, state=6)
+        transform(6.0)
+        assert run(NODE_ENTER, D) and tries() == 0
+        manager(is_child, state=6, ident=0x4444)
+        assert run(NODE_ENTER, W) and tries() == 0
+        assert run(NODE_ENTER, W) and tries() == 0 and stash()["swaps"] == 2
+    mu.mem_write(p.stash + ST_TRIES, struct.pack("<I", 0))
     # a scene without a resident actor manager: the node ends at once and touches nothing
     answers["mgr"] = 0
     clear()
@@ -713,9 +775,56 @@ def swap_steps(g):
         wait_actor(),
         wait_actor(),
         g.add(swap_node(MODE_WAKE)),            # everybody awake where he stood
+    ] + ([set_player_pos(g)] if QUICK else []) + [
         g.add(B.vanilla("MinusMenuToMain", 1, "WaitEquip.module")),
         g.add(release),
     ]
+
+
+def settle_steps(g):
+    """SETTLE (fade version): after the pause is released, still black: 3 frames (the game's
+    own wait before its SetPlayerPos, SceneBeginning node 9), the set-player-position, then
+    10 more frames in which the new player runs unseen. Why after the release: in the quick
+    round (2026-11-14) the wake and the set-position both happened under a pause, the player
+    used the set-position's flag one frame BEFORE the wake took effect (fieldcam: +0x1c30
+    back to 0 while still asleep), so the reset was spent on the sleeping player."""
+    B = build
+    wait = B.vanilla("SceneBeginning", 9, "SeqExecuteGenericWaitFrame")
+    assert [p["Default Value"] for p in wait["Properties"]["Int"] if p["Name"] == "Frame"] == [3]
+    run = B.vanilla("Amiibo", 73, "SeqExecuteGenericWaitFrame")
+    assert [p["Default Value"] for p in run["Properties"]["Int"] if p["Name"] == "Frame"] == [10]
+    for n in (wait, run):
+        n["Plugs"] = {}         # SceneBeginning 9 goes on to 18 in its own graph
+    return [g.add(wait), set_player_pos(g), g.add(run)]
+
+
+def set_player_pos(g):
+    """QUICK: the step the game's own scene start takes after its wake (SceneBeginning.module
+    node 5, three frames after the wake): the player put where he is. The node (0x80964cf0)
+    moves him with the setter's warp on (0x80964e70, flag 1 = warp) and sets bit 0 of the
+    player component's halfword +0x1c30 ([[player + 0x270] + 0x358]); our wake by message
+    does neither, which is the first suspect for the stutter step snaildev saw after the fade
+    (2026-11-14; the recordings show the new player's root standing still, so what moves is
+    the pose). Position from SeqGetPlayerPos (ResetGimmickImpl node 7) in place of the
+    game's safety-place search, which could move him elsewhere; riding as the game asks it."""
+    B = build
+    ride = g.add(B.vanilla("SceneBeginning", 10, "SeqQueryGetNonStructGameDataBool"))
+    assert g.nodes[ride]["Parameters"]["Inputs"]["String"][0]["Default Value"] == "Horse_IsRide"
+    pos = B.vanilla("ResetGimmickImpl", 7, "SeqGetPlayerPos")
+    assert pos["Parameters"]["Outputs"] == {"Vector3F": [{"Name": "Pos", "Is Output": True}]}
+    pos = g.add(pos)
+    n = B.vanilla("SceneBeginning", 5, "SeqOneShotSetPlayerPos")
+    inp = n["Parameters"]["Inputs"]
+    assert [p["Name"] for p in inp["Bool"]] == ["SetRidablePosIfRiding"] and [p["Name"] for p in inp["Vector3F"]] == ["Position"]
+    assert n["Queries"] == [10, 7] and n["Plugs"] == {"Generic": [{"Node Index": 10, "Name": "SetRidablePosIfRiding"}]}
+    inp["Bool"][0]["Node Index"] = ride
+    inp["Vector3F"][0]["Node Index"] = pos
+    n["Queries"] = [ride, pos]
+    n["Plugs"] = {"Generic": [{"Node Index": ride, "Name": "SetRidablePosIfRiding"}]}
+    setpos = g.add(n)
+    # as the stock query of a position names its first user (ResetGimmickImpl node 7 -> 6)
+    g.nodes[pos]["Plugs"] = {"Generic": [{"Node Index": setpos, "Name": "Pos"}]}
+    return setpos
 
 
 _normal_close_page_with_menu = build.close_page_with_menu
@@ -736,6 +845,18 @@ def close_page_with_menu(mod, sizes):
     g.node(1, "WaitEquip.module")
     assert [c["Node Index"] for c in g.node(9, "", "Element_Simultaneous")["Plugs"]["Child"]] == [11, 2]
     g.node(2, "PlusMinusPauseOff.module")
+    if QUICK:
+        # no fade: the swap after the wait, while the menu still covers the field; after the
+        # close only a second wake (ends at once when the first one finished) and the flag
+        swap = g.add(B.t_sequential(swap_steps(g), root=False, same_frame=False))
+        after = g.add(B.t_sequential([g.add(swap_node(MODE_WAKE)), g.add(B.t_set_flag(PENDING_FLAG, False))],
+                                     root=False, same_frame=False))
+        root["Plugs"]["Child"] = [
+            {"Node Index": g.add(B.t_sequential([1, _pending(g, swap)], root=False)), "Name": ""},
+            {"Node Index": g.add(B.t_sequential([9, _pending(g, after)], root=False)), "Name": ""}]
+        out = g.build()
+        B.write(MOD, MENU_TO_MAIN, out, len(out), sizes)
+        return
     S = FADE_SCREEN
     visible = g.add(B.vanilla("MinusMenu", 22, "SeqOneShotSetScreenVisible", ScreenName=S, IsVisible=True))
     # the screen opens and gets its first animation requests in one frame, so it is never
@@ -750,6 +871,8 @@ def close_page_with_menu(mod, sizes):
     ], root=False, same_frame=False))
     back = [g.add(B.t_play_anim(S, FADE_OUT)), g.add(B.t_wait_anim(S, FADE_OUT)),
             g.add(B.t_close_unload_screen(S)), g.add(B.t_set_flag(PENDING_FLAG, False))]
+    if SETTLE:
+        back = settle_steps(g) + back
     swap = g.add(B.t_sequential(swap_steps(g) + back, root=False, same_frame=False))
     root["Plugs"]["Child"] = [
         {"Node Index": g.add(B.t_sequential([1, _pending(g, black)], root=False)), "Name": ""},
@@ -839,7 +962,7 @@ def check_graphs():
         for n in ainbx.load(open(path, "rb").read()).as_dict()["Nodes"]:
             if n.get("Name") in ours:
                 used.setdefault(n["Name"], []).append((folder, os.path.basename(path)))
-    assert used == {NODE: [(MOD, os.path.basename(MENU_TO_MAIN))] * 2}, used       # the two instances
+    assert used == {NODE: [(MOD, os.path.basename(MENU_TO_MAIN))] * (3 if QUICK else 2)}, used     # our instances
     # our folder wins over every folder that has the same file, and has the size table too
     others = [f for f in os.listdir(B.BUILD) if f != MOD and os.path.exists(os.path.join(B.BUILD, f, "romfs", MENU_TO_MAIN))]
     assert others == ["Characters page"] and MOD < min(list(B.MODS) + others)
@@ -850,56 +973,30 @@ def check_graphs():
         [os.path.join("exefs", exepatch.BUILD_ID + ".ips"), os.path.join("romfs", *MENU_TO_MAIN.split("/")),
          os.path.join("romfs", *B.rstb.PATH.split("/"))])
 
-    nodes = ainbx.load(open(os.path.join(B.BUILD, MOD, "romfs", MENU_TO_MAIN), "rb").read()).as_dict()["Nodes"]
-    stock = ainbx.load(open(os.path.join(B.ROMFS, MENU_TO_MAIN), "rb").read()).as_dict()["Nodes"]
-    root = [c["Node Index"] for c in nodes[0]["Plugs"]["Child"]]
-    assert len(root) == 2 and "Is Root Node" in nodes[0]["Flags"]
-    first, second = (_describe(nodes, i) for i in root)
-    P, S = PENDING_FLAG, FADE_SCREEN
-    assert first == ("Seq[WaitEquip.module, If(%s ? SeqFrames[Seq[SeqExecuteLoadAndOpenScreen(%s), "
-                     "All[SeqOneShotSetScreenVisible(%s, True), SeqOneShotRequestStopAnimationScreen(%s, Color, 0.0), "
-                     "SeqOneShotRequestPlayAnimationScreen(%s, %s)]], SeqExecuteWaitScreenAnimEnd(%s, %s)] "
-                     ": SeqExecuteGenericDummyAction)]" % (P, S, S, S, S, FADE_IN, S, FADE_IN)), first
-    close = _describe(nodes, 9)
-    assert close.startswith("All[All[SeqOneShotOpenScreen(PlayerStatus_00), ") and "PlusMinusPauseOff.module" in close
-    want = ("SeqFrames[" + ("" if KEEP_CAMERA else "SeqOneShotShooterResetShootableAll, SeqExecuteSceneRequestSleepResidentActors, ") +
-            "SeqOneShotRequestPause(SceneTransition), %s(False), SeqExecuteSceneRequestCreateResidentActors, "
-            "SeqExecuteWaitCreateActor, SeqExecuteWaitCreateActor, %s(True), WaitEquip.module, "
-            "SeqOneShotReleasePause(SceneTransition), SeqOneShotRequestPlayAnimationScreen(%s, %s), "
-            "SeqExecuteWaitScreenAnimEnd(%s, %s), SeqExecuteCloseAndUnloadScreen(%s), "
-            "SeqOneShotSetNonStructGameDataBool(%s, False)]" % (NODE, NODE, S, FADE_OUT, S, FADE_OUT, S, P))
-    assert second == "Seq[%s, If(%s ? %s : SeqExecuteGenericDummyAction)]" % (close, P, want), second
-    # the stock nodes are still the stock nodes (we only added)
-    for i, n in enumerate(stock):
-        if i != 0:
-            assert nodes[i].get("Name") == n.get("Name") and nodes[i]["Node Type"] == n["Node Type"], i
-    create = [n for n in nodes if n.get("Name") == "SeqExecuteSceneRequestCreateResidentActors"]
-    assert len(create) == 1
-    ours = [n for n in nodes if n.get("Name") == NODE]
-    assert [(n["Parameters"], n["Queries"], n["Plugs"], n["Properties"]) for n in ours] == [
-        ({"Inputs": {"Bool": [{"Name": NODE_INPUT_NAME, "Default Value": mode, "Node Index": -1, "Output Index": 0,
-                               "Flags": ["Uses Default"]}]}, "Outputs": {}}, [], {}, {}) for mode in (MODE_DELETE, MODE_WAKE)]
-    q = nodes[create[0]["Parameters"]["Inputs"]["Bool"][0]["Node Index"]]
-    assert _strings(q) == {"GameDataIndex": -1, "IsDirect": True, "GameDataFullName": "Sequence_IsChildhood"}, _strings(q)
-
-    page = ainbx.load(open(os.path.join(B.BUILD, "Characters page", "romfs", "Sequence", "CharacterMenu.module.ainb"),
-                           "rb").read()).as_dict()["Nodes"]
-    sets = [i for i, n in enumerate(page) if n.get("Name") == "SeqOneShotSetNonStructGameDataBool" and
-            _strings(n)["GameDataFullName"] == PENDING_FLAG]
-    assert len(sets) == 1 and _strings(page[sets[0]])["Value"] is True
-    parents = [n for n in page if any(c["Node Index"] == sets[0] for c in n.get("Plugs", {}).get("Child", []))]
-    assert len(parents) == 1 and parents[0]["Node Type"] == "Element_Simultaneous"
-    assert not any(n.get("Name") == "SeqOneShotSetNonStructGameDataBool" and _strings(n)["GameDataFullName"] == PENDING_FLAG
-                   and _strings(n)["Value"] is True for n in nodes)
-
+    first, second = check_menu_graph(open(os.path.join(B.BUILD, MOD, "romfs", MENU_TO_MAIN), "rb").read())
+    check_page_graph(open(os.path.join(B.BUILD, "Characters page", "romfs", "Sequence", "CharacterMenu.module.ainb"),
+                          "rb").read())
     for mod in B.RSTB_MODS:
         path = os.path.join(B.BUILD, mod, "romfs", B.UISCREEN)
         if os.path.exists(path):
-            rows = byml.load(nxfmt.unzs(open(path, "rb").read(), B.UISCREEN))
-            row = [r for r in rows if r["Name"] == FADE_SCREEN]
-            assert row == [dict({"ArchiveCategory": ["Common"], "BodyLayoutFile": FADE_LAYOUT, "IsHeapReverse": True,
-                                 "Name": FADE_SCREEN}, **FADE_ROW)], row
-            assert [r["Name"] for r in rows] == sorted((r["Name"] for r in rows), key=str.encode)
+            check_screen_table(open(path, "rb").read())
+    check_fade_layout()
+    data = byml.load(nxfmt.read(os.path.join(B.BUILD, "Character models", "romfs", B.gamedata.PATH)))
+    check_flag(data)
+    return first, second
+
+
+def check_screen_table(raw):
+    B = build
+    rows = byml.load(nxfmt.unzs(raw, B.UISCREEN))
+    row = [r for r in rows if r["Name"] == FADE_SCREEN]
+    assert row == [dict({"ArchiveCategory": ["Common"], "BodyLayoutFile": FADE_LAYOUT, "IsHeapReverse": True,
+                         "Name": FADE_SCREEN}, **FADE_ROW)], row
+    assert [r["Name"] for r in rows] == sorted((r["Name"] for r in rows), key=str.encode)
+
+
+def check_fade_layout():
+    B = build
     arc = nxfmt.read(os.path.join(B.ROMFS, B.COMMON_LAYOUTS))
     lay = B.layout.Layout(nxfmt.sarc_files(arc)[FADE_LAYOUT + ".buil"])
     A, V = B.uiedit.ALPHA, B.uiedit.VISIBLE
@@ -907,10 +1004,78 @@ def check_graphs():
     assert val("Color", 0)[(3, V, None)] == [1.0] and val("Color", 0)[(5, V, None)] == [0.0]       # black shown
     assert val(FADE_IN, 0)[(2, A, None)] == [0.0] and val(FADE_IN, FADE_IN_FRAMES)[(2, A, None)] == [1.0]
     assert val(FADE_OUT, 0)[(2, A, None)] == [1.0] and val(FADE_OUT, FADE_OUT_FRAMES)[(2, A, None)] == [0.0]
-    data = byml.load(nxfmt.read(os.path.join(B.BUILD, "Character models", "romfs", B.gamedata.PATH)))
+
+
+def check_flag(data):
+    B = build
     h = B.gamedata.murmur3_32(PENDING_FLAG)
     assert [e for e in data["Data"]["Bool"] if e["Hash"] == h] == \
         [{"DefaultValue": False, "Hash": h, "ResetTypeValue": 0, "SaveFileIndex": -1}]
+
+
+def check_page_graph(raw):
+    """The picker's A sets the flag (once, in a Simultaneous with the step after the store)."""
+    page = ainbx.load(raw).as_dict()["Nodes"]
+    sets = [i for i, n in enumerate(page) if n.get("Name") == "SeqOneShotSetNonStructGameDataBool" and
+            _strings(n)["GameDataFullName"] == PENDING_FLAG]
+    assert len(sets) == 1 and _strings(page[sets[0]])["Value"] is True
+    parents = [n for n in page if any(c["Node Index"] == sets[0] for c in n.get("Plugs", {}).get("Child", []))]
+    assert len(parents) == 1 and parents[0]["Node Type"] == "Element_Simultaneous"
+
+
+def check_menu_graph(raw):
+    """Our MinusMenuToMain read back: the two steps as intended (by QUICK), the stock nodes
+    unchanged, our node instances as written. -> the two steps as text."""
+    B = build
+    nodes = ainbx.load(raw).as_dict()["Nodes"]
+    stock = ainbx.load(open(os.path.join(B.ROMFS, MENU_TO_MAIN), "rb").read()).as_dict()["Nodes"]
+    root = [c["Node Index"] for c in nodes[0]["Plugs"]["Child"]]
+    assert len(root) == 2 and "Is Root Node" in nodes[0]["Flags"]
+    first, second = (_describe(nodes, i) for i in root)
+    P, S = PENDING_FLAG, FADE_SCREEN
+    close = _describe(nodes, 9)
+    assert close.startswith("All[All[SeqOneShotOpenScreen(PlayerStatus_00), ") and "PlusMinusPauseOff.module" in close
+    swap = ("SeqOneShotRequestPause(SceneTransition), %s(False), SeqExecuteSceneRequestCreateResidentActors, "
+            "SeqExecuteWaitCreateActor, SeqExecuteWaitCreateActor, %s(True), " % (NODE, NODE) +
+            ("SeqOneShotSetPlayerPos, " if QUICK else "") + "WaitEquip.module, SeqOneShotReleasePause(SceneTransition)")
+    sleep = "" if KEEP_CAMERA else "SeqOneShotShooterResetShootableAll, SeqExecuteSceneRequestSleepResidentActors, "
+    if QUICK:
+        want1 = "Seq[WaitEquip.module, If(%s ? SeqFrames[%s%s] : SeqExecuteGenericDummyAction)]" % (P, sleep, swap)
+        want2 = "SeqFrames[%s(True), SeqOneShotSetNonStructGameDataBool(%s, False)]" % (NODE, P)
+    else:
+        want1 = ("Seq[WaitEquip.module, If(%s ? SeqFrames[Seq[SeqExecuteLoadAndOpenScreen(%s), "
+                 "All[SeqOneShotSetScreenVisible(%s, True), SeqOneShotRequestStopAnimationScreen(%s, Color, 0.0), "
+                 "SeqOneShotRequestPlayAnimationScreen(%s, %s)]], SeqExecuteWaitScreenAnimEnd(%s, %s)] "
+                 ": SeqExecuteGenericDummyAction)]" % (P, S, S, S, S, FADE_IN, S, FADE_IN))
+        settle = ("SeqExecuteGenericWaitFrame, SeqOneShotSetPlayerPos, SeqExecuteGenericWaitFrame, "
+                  if SETTLE else "")
+        want2 = ("SeqFrames[%s%s, %sSeqOneShotRequestPlayAnimationScreen(%s, %s), SeqExecuteWaitScreenAnimEnd(%s, %s), "
+                 "SeqExecuteCloseAndUnloadScreen(%s), SeqOneShotSetNonStructGameDataBool(%s, False)]"
+                 % (sleep, swap, settle, S, FADE_OUT, S, FADE_OUT, S, P))
+    assert first == want1, first
+    assert second == "Seq[%s, If(%s ? %s : SeqExecuteGenericDummyAction)]" % (close, P, want2), second
+    if QUICK or SETTLE:     # the position: where the player is, riding as the game asks it
+        setpos = [n for n in nodes if n.get("Name") == "SeqOneShotSetPlayerPos"]
+        assert len(setpos) == 1
+        inp = setpos[0]["Parameters"]["Inputs"]
+        assert nodes[inp["Vector3F"][0]["Node Index"]].get("Name") == "SeqGetPlayerPos"
+        assert _strings(nodes[inp["Bool"][0]["Node Index"]])["GameDataFullName"] == "Horse_IsRide"
+        assert sorted(setpos[0]["Queries"]) == sorted([inp["Vector3F"][0]["Node Index"], inp["Bool"][0]["Node Index"]])
+    # the stock nodes are still the stock nodes (we only added)
+    for i, n in enumerate(stock):
+        if i != 0:
+            assert nodes[i].get("Name") == n.get("Name") and nodes[i]["Node Type"] == n["Node Type"], i
+    create = [n for n in nodes if n.get("Name") == "SeqExecuteSceneRequestCreateResidentActors"]
+    assert len(create) == 1
+    ours = [n for n in nodes if n.get("Name") == NODE]
+    modes = (MODE_DELETE, MODE_WAKE, MODE_WAKE) if QUICK else (MODE_DELETE, MODE_WAKE)
+    assert [(n["Parameters"], n["Queries"], n["Plugs"], n["Properties"]) for n in ours] == [
+        ({"Inputs": {"Bool": [{"Name": NODE_INPUT_NAME, "Default Value": mode, "Node Index": -1, "Output Index": 0,
+                               "Flags": ["Uses Default"]}]}, "Outputs": {}}, [], {}, {}) for mode in modes]
+    q = nodes[create[0]["Parameters"]["Inputs"]["Bool"][0]["Node Index"]]
+    assert _strings(q) == {"GameDataIndex": -1, "IsDirect": True, "GameDataFullName": "Sequence_IsChildhood"}, _strings(q)
+    assert not any(n.get("Name") == "SeqOneShotSetNonStructGameDataBool" and _strings(n)["GameDataFullName"] == PENDING_FLAG
+                   and _strings(n)["Value"] is True for n in nodes)
     return first, second
 
 
@@ -936,6 +1101,138 @@ def compare_with_installed():
     return out
 
 
+# ---------------------------------------------------------------- on top of a release
+
+RELEASE_ZIP = os.path.join(ROOT, "dist", "OoT-Character-Select-v0.2.0.zip")
+RELEASE_FOLDER = "OoT Character Select"
+PIECES = os.path.join(BUILD_FIELD, "pieces")
+
+
+def pieces(quick, settle=False):
+    """This module's own two files built alone, without the full build (into PIECES): the
+    menu graph with its size table need and the code patch, as `quick` says, both checked
+    (the graph read back, the patch emulated)."""
+    global QUICK, SETTLE
+    keep = QUICK, SETTLE, build.BUILD, build.EXE_PATCHES
+    QUICK, SETTLE = quick, settle
+    build.BUILD = os.path.join(PIECES, "quick" if quick else "settle" if settle else "default")
+    build.EXE_PATCHES = {}
+    shutil.rmtree(build.BUILD, ignore_errors=True)
+    try:
+        sizes = {}
+        close_page_with_menu(MOD, sizes)
+        graph = open(os.path.join(build.BUILD, MOD, "romfs", MENU_TO_MAIN), "rb").read()
+        steps = check_menu_graph(graph)
+        p = field_patch()
+        return dict(graph=graph, need=sizes[MENU_TO_MAIN], patch=p, runs=check_patch(p), steps=steps)
+    finally:
+        QUICK, SETTLE, build.BUILD, build.EXE_PATCHES = keep
+
+
+def _ips_records(data):
+    """[(file offset, bytes)] of an IPS32 file (as tools\\package.py reads them)."""
+    assert data[:5] == b"IPS32"
+    o, out = 5, []
+    while data[o:o + 4] != b"EEOF":
+        at, n = struct.unpack_from(">IH", data, o)
+        o += 6
+        if n == 0:
+            n = struct.unpack_from(">H", data, o)[0]
+            out.append((at, data[o + 2:o + 3] * n))
+            o += 3
+        else:
+            out.append((at, data[o:o + n]))
+            o += n
+    assert o + 4 == len(data)
+    return out
+
+
+def _ips(records):
+    out = bytearray(b"IPS32")
+    for at, chunk in sorted(records):
+        for i in range(0, len(chunk), 0xFFFF):
+            part = chunk[i:i + 0xFFFF]
+            out += struct.pack(">IH", at + i, len(part)) + part
+    return bytes(out + b"EEOF")
+
+
+def _byte_map(records):
+    out = {}
+    for at, chunk in records:
+        out.update((at + i, c) for i, c in enumerate(chunk))
+    return out
+
+
+def onto_release(quick, settle=False, zip_path=RELEASE_ZIP):
+    """The release's one folder with this module's two files as `quick` says, everything else
+    byte for byte the release's. Checked first: the release's menu graph and its part of the
+    code patch are exactly what this module builds without QUICK (so the release is this
+    module's default and nothing else wrote those bytes). The patch: the release's records
+    with ours as released taken out and ours as now put in (no byte of another patch
+    touched); the size table: the graph's entry raised if it has to be.
+    -> (zip, prefix of the folder in it, {path in the folder: new bytes}, notes)."""
+    import zipfile
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import rstb
+    old, new = pieces(False), pieces(quick, settle)
+    z = zipfile.ZipFile(zip_path)
+    marker = "/mods/%s/" % RELEASE_FOLDER
+    prefix = [n for n in z.namelist() if marker in n][0]
+    prefix = prefix[:prefix.index(marker) + len(marker)]
+    graph_rel, ips_rel, table_rel = "romfs/" + MENU_TO_MAIN, "exefs/%s.ips" % exepatch.BUILD_ID, "romfs/" + rstb.PATH
+    assert z.read(prefix + graph_rel) == old["graph"], "the release's menu graph is not this module's default build"
+    released = _ips_records(z.read(prefix + ips_rel))
+    ours_then, ours_now = _ips_records(old["patch"].ips32()), _ips_records(new["patch"].ips32())
+    assert all(r in released for r in ours_then), "the release's patch does not hold this module's default patch"
+    rest = [r for r in released if r not in ours_then]
+    merged = sorted(rest + ours_now)
+    for (a, ca), (b, _cb) in zip(merged, merged[1:]):
+        assert a + len(ca) <= b, "our patch meets another one at %x" % b
+    patch = _ips(merged)
+    want = _byte_map(rest)
+    want.update(_byte_map(ours_now))
+    assert _byte_map(_ips_records(patch)) == want and not set(_byte_map(rest)) & set(_byte_map(ours_now))
+    raw = z.read(prefix + table_rel)
+    t = rstb.Rstb(nxfmt.unzs(raw))
+    entry = t.get(MENU_TO_MAIN)
+    assert entry is not None and entry >= old["need"], (entry, old["need"])
+    notes = ["menu graph %d -> %d bytes, size table entry %d" % (len(old["graph"]), len(new["graph"]), entry)]
+    changes = {graph_rel: new["graph"], ips_rel: patch}
+    if new["need"] > entry:
+        t.ensure(MENU_TO_MAIN, new["need"])
+        changes[table_rel] = nxpack.zs_compress_like(t.to_bytes(), raw)
+        notes.append("size table entry raised to %d" % new["need"])
+    notes.append("code patch: %d of the release's %d records are ours, now %d records of ours (%d emulated runs)"
+                 % (len(ours_then), len(released), len(ours_now), new["runs"]))
+    notes += ["menu close, step %d: %s" % (i + 1, s) for i, s in enumerate(new["steps"])]
+    return z, prefix, changes, notes
+
+
+def install_onto_release(quick, settle=False):
+    """onto_release() into the field swap emulator copy (and nowhere else): its mods folder
+    gets exactly the release's one folder with our files in it."""
+    z, prefix, changes, notes = onto_release(quick, settle)
+    print("\n".join("  " + n for n in notes))
+    fieldenv.setup()
+    fieldenv.check()
+    for name in os.listdir(fieldenv.LOAD):
+        shutil.rmtree(os.path.join(fieldenv.LOAD, name))
+    base = os.path.join(fieldenv.LOAD, RELEASE_FOLDER)
+    n = 0
+    for name in z.namelist():
+        if not name.startswith(prefix) or name.endswith("/"):
+            continue
+        rel = name[len(prefix):]
+        out = os.path.join(base, *rel.split("/"))
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "wb") as f:
+            f.write(changes.get(rel) or z.read(name))
+        n += 1
+    for rel, data in changes.items():
+        assert open(os.path.join(base, *rel.split("/")), "rb").read() == data
+    print("  installed -> %s (%d files, %d of them ours)" % (base, n, len(changes)))
+
+
 # ---------------------------------------------------------------- main
 
 # The default since it passed in game (snaildev, 2026-11-10, "that fixes it"): nobody is put to
@@ -944,12 +1241,40 @@ def compare_with_installed():
 # the camera ends up behind the character as after a door). `--keep-camera` is accepted and
 # means the default.
 KEEP_CAMERA = True
+# `--quick` (2026-11-14, experiment, NOT the default and not what the main build takes): no
+# fade, the swap under the still open menu, the game's own "set player position" after the wake.
+QUICK = False
+# `--settle` (2026-11-14, experiment for the stutter step, fade version): settle_steps.
+SETTLE = False
 
 
 def main():
-    global KEEP_CAMERA
+    """`--release [--quick] [--install]`: on top of the v0.2.0 zip (onto_release), into the
+    field swap copy only; the way rounds run since 2026-11-14. Without `--release`: the old
+    way, the whole normal build into build-field\\ (its install puts the working folders into
+    the copy; build.main() gets no options, so it is the lite roster)."""
+    global KEEP_CAMERA, QUICK
     KEEP_CAMERA = "--sleep-all" not in sys.argv
     install = "--install" in sys.argv
+    if "--release" in sys.argv:
+        assert KEEP_CAMERA, "the release is the keep-camera version"
+        if install:
+            for _ in range(10):
+                if not fieldenv.running():
+                    break
+                time.sleep(1)
+            else:
+                print("The field swap emulator copy is running. Close it first: it keeps the mod files open.")
+                sys.exit(1)
+        # no build lock: this writes only build-field\pieces and the field swap copy's own mods
+        # folder, which no other session writes (2026-11-14: a long customize build held the
+        # lock and the round's button gave up after its 180 s)
+        if install:
+            install_onto_release("--quick" in sys.argv, "--settle" in sys.argv)
+        else:
+            print("\n".join("  " + n for n in onto_release("--quick" in sys.argv, "--settle" in sys.argv)[3]))
+        return
+    QUICK = "--quick" in sys.argv
     if install:
         for _ in range(10):     # a just-closed emulator takes a moment to go away
             if not fieldenv.running():

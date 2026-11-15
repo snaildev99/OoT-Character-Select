@@ -71,9 +71,9 @@ What it does
   The characters are model swaps on Link's animations, with basic facial animation,
   legs that follow slopes, and their own hair, skirts and dresses as cloth. Some of
   them have their own voices (made from Link's by voice conversion). X on the page
-  opens Customize for the character shown: hair colour, eye colour, and equipment
-  shown or hidden. Expect visual faults: only some of the characters have been
-  tested in play.
+  opens Customize for the character shown: hair colour, eye colour, three clothing
+  colours, and equipment shown or hidden. Expect visual faults: only some of the
+  characters have been tested in play.
 
 Install (emulator)
   1. Close the game.

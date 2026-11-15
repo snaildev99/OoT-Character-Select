@@ -147,6 +147,83 @@ def bc1_blocks(blocks, fn, ordered=True):
     return out
 
 
+# ---------------------------------------------------------------- ASTC
+# An ASTC block has no end points to change in place (its colours are coded in one of many
+# ways, with the bit widths traded against the weights'), so ASTC is decoded, repainted and
+# encoded again; but block by block, never as a picture. A block is sixteen bytes that
+# decode by themselves, and the console keeps a texture's blocks (every mip's, in its own
+# order, with padding between) as a plain run of them. So: the run is decoded as it lies
+# (the blocks laid out in a grid of our own), `fn` repaints the texels, the blocks it
+# changed are encoded again and put back where they were. Nothing has to be known about
+# the console's block order or the mips, and a block `fn` leaves alone (and every padding
+# block) keeps its bytes.
+ASTC_QUALITY = 80.0         # the encoder's 0..100 (60 = its "medium", 98 = "thorough")
+ASTC_COLS = 256             # blocks a row in the grid they are decoded and encoded in
+_astc_contexts = {}
+
+
+def astc_size(fmt):
+    """(block width, block height) of a format named ASTC<w>x<h>, else None."""
+    if not fmt.startswith("ASTC"):
+        return None
+    w, h = fmt[4:].split("x")
+    return int(w), int(h)
+
+
+def _grid(n):
+    cols = min(n, ASTC_COLS)
+    return cols, -(-n // cols)
+
+
+def astc_decode_blocks(blocks, bw, bh):
+    """(n, 16) uint8 ASTC blocks -> (n, bh, bw, 4) uint8 RGBA, every block by itself."""
+    import texture2ddecoder as t2d
+    n = len(blocks)
+    cols, rows = _grid(n)
+    padded = np.zeros((rows * cols, 16), np.uint8)
+    padded[:n] = blocks
+    raw = t2d.decode_astc(padded.tobytes(), cols * bw, rows * bh, bw, bh)       # BGRA
+    img = np.frombuffer(raw, np.uint8).reshape(rows, bh, cols, bw, 4)[..., [2, 1, 0, 3]]
+    return img.transpose(0, 2, 1, 3, 4).reshape(rows * cols, bh, bw, 4)[:n].copy()
+
+
+def astc_encode_blocks(texels, bw, bh, srgb=True, quality=None):
+    """(n, bh, bw, 4) uint8 RGBA -> (n, 16) uint8 ASTC blocks."""
+    import astc_encoder as ae
+    n = len(texels)
+    cols, rows = _grid(n)
+    padded = np.zeros((rows * cols, bh, bw, 4), np.uint8)
+    padded[:n] = texels
+    padded[n:] = texels[-1]
+    img = padded.reshape(rows, cols, bh, bw, 4).transpose(0, 2, 1, 3, 4).reshape(rows * bh, cols * bw, 4)
+    key = (bw, bh, bool(srgb), ASTC_QUALITY if quality is None else quality)
+    if key not in _astc_contexts:
+        cfg = ae.ASTCConfig(ae.ASTCProfile.LDR_SRGB if srgb else ae.ASTCProfile.LDR, bw, bh, 1, key[3])
+        _astc_contexts[key] = ae.ASTCContext(cfg, threads=max(1, (os.cpu_count() or 2) - 1))
+    out = _astc_contexts[key].compress(ae.ASTCImage(ae.ASTCType.U8, cols * bw, rows * bh, 1, np.ascontiguousarray(img).tobytes()),
+                                       ae.ASTCSwizzle.from_str("RGBA"))
+    assert len(out) == rows * cols * 16
+    return np.frombuffer(out, np.uint8).reshape(-1, 16)[:n].copy()
+
+
+def astc_blocks(blocks, bw, bh, fn, srgb=True):
+    """(n, 16) ASTC blocks with fn applied to every texel's colour; the alpha is given to the
+    encoder as it was decoded. Blocks fn does not change by more than a step of 255, and
+    blocks of zeros (padding), keep their bytes. -> (new blocks, how many were encoded)"""
+    tex = astc_decode_blocks(blocks, bw, bh)
+    n = len(blocks)
+    rgb = tex[..., :3].reshape(-1, 3).astype(np.float64) / 255.0
+    new = np.rint(np.clip(fn(rgb), 0.0, 1.0) * 255.0).astype(np.int16).reshape(n, bh * bw, 3)
+    old = tex[..., :3].reshape(n, bh * bw, 3).astype(np.int16)
+    changed = (np.abs(new - old).max(axis=(1, 2)) > 1) & blocks.any(axis=1)
+    out = blocks.copy()
+    if changed.any():
+        texels = tex[changed].copy()
+        texels[..., :3] = new[changed].reshape(-1, bh, bw, 3).astype(np.uint8)
+        out[changed] = astc_encode_blocks(texels, bw, bh, srgb)
+    return out, int(changed.sum())
+
+
 def data_range(d):
     """(texture, start, end) of the one texture's data (every mip) in a Tex file."""
     arc = bntx.Bntx(d)
@@ -159,15 +236,23 @@ def data_range(d):
     return t, t.data_off, t.data_off + t.size
 
 
+def can_recolour(t):
+    """A texture this can recolour: BC1 / BC3 / BC7 (end points) or ASTC (decoded and encoded
+    again), its colours stored as red, green, blue."""
+    return (t.format in ("BC1", "BC3", "BC7") or astc_size(t.format) is not None) and tuple(t.comp[:3]) == (2, 3, 4)
+
+
 def recolour(data, new_name, fn):
-    """The file's bytes with every block's end points through fn and the texture renamed."""
+    """The file's bytes with every block's colours through fn and the texture renamed."""
     d = bytearray(data)
     t, start, end = data_range(bytes(d))
-    assert t.format in ("BC1", "BC3", "BC7"), "a format this does not recolour: %s (%s)" % (t.format, t.name)
+    assert t.format in ("BC1", "BC3", "BC7") or astc_size(t.format), "a format this does not recolour: %s (%s)" % (t.format, t.name)
     size = 8 if t.format == "BC1" else 16
     assert (end - start) % size == 0
     blocks = np.frombuffer(bytes(d[start:end]), np.uint8).reshape(-1, size)
-    if t.format == "BC7":
+    if astc_size(t.format):
+        new, _encoded = astc_blocks(blocks, *astc_size(t.format), fn, srgb=t.srgb)
+    elif t.format == "BC7":
         new = bc7_blocks(blocks, fn)
     elif t.format == "BC1":
         new = bc1_blocks(blocks, fn)
@@ -251,7 +336,11 @@ def check(old, new, fn, tolerance=0.06):
     rounding), with the alpha untouched. -> mean error of the colours, 0..1."""
     a, b = decoded(old).astype(np.float64) / 255.0, decoded(new).astype(np.float64) / 255.0
     assert a.shape == b.shape
-    assert np.array_equal(decoded(old)[:, :, 3], decoded(new)[:, :, 3]), "the alpha changed"
+    if astc_size(list(bntx.Bntx(old).tex.values())[0].format):         # encoded again: the alpha is as near as the encoder gets it
+        da = np.abs(a[:, :, 3] - b[:, :, 3])
+        assert da.mean() < 0.01 and (da > 0.25).mean() < 0.002, "the alpha changed (mean %.4f)" % da.mean()
+    else:
+        assert np.array_equal(decoded(old)[:, :, 3], decoded(new)[:, :, 3]), "the alpha changed"
     want = np.clip(fn(a[:, :, :3].reshape(-1, 3)), 0, 1).reshape(a.shape[0], a.shape[1], 3)
     shown = a[:, :, 3] > 0.5 if (a[:, :, 3] > 0.5).any() else np.ones(a.shape[:2], bool)
     err = float(np.abs(want - b[:, :, :3])[shown].mean())

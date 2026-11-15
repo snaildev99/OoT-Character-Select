@@ -87,6 +87,13 @@ def sample(lv):
             s["target_at"] = target
             if target:
                 s["target"] = lv.d.read(target + 0x240, 0x10)       # +0x24c: the flags the camera reads
+            pc = lv.q(comps + 0x358) if comps else 0                # the player component: +0x1c30 bit 0 = SetPlayerPos's flag
+            if pc:
+                s["pflag"] = lv.d.read(pc + 0x1c30, 2)
+    try:
+        s["paused"] = lv.gd_bool("Sequence_IsPause")
+    except Exception:  # noqa: BLE001
+        s["paused"] = None
     return s
 
 
@@ -131,14 +138,17 @@ def record(seconds):
                 kept += 1
                 last = key
             valid, deletes = struct.unpack_from("<II", s["stash"], 0)
-            wakes, swaps = struct.unpack_from("<II", s["stash"], 0x48)
+            wakes, swaps, tries = struct.unpack_from("<III", s["stash"], 0x48)
             pst = struct.unpack_from("<I", s["player"], 0)[0] if s.get("player") else None
-            marks = (valid, wakes, swaps, bool(s.get("actor_at")), bool(s.get("cam_at")), s.get("player_at"), pst)
+            pflag = struct.unpack("<H", s["pflag"])[0] if s.get("pflag") else None
+            marks = (valid, wakes, swaps, bool(s.get("actor_at")), bool(s.get("cam_at")), s.get("player_at"), pst,
+                     tries, s.get("paused"), pflag)
             if marks != last_marks:
-                note("sample %d: place remembered %d, wake calls %d, swaps done %d, camera actor %s, component %s, "
-                     "player %s state %s (fs_delete calls %d)" % (
-                         n, valid, wakes, swaps, "found" if marks[3] else "none", "found" if marks[4] else "none",
-                         "%#x" % marks[5] if marks[5] else "unknown", pst, deletes))
+                note("sample %d: place remembered %d, wake calls %d (failed %d), swaps done %d, camera actor %s, "
+                     "component %s, player %s state %s, its flags +1c30 %s, pause %s (fs_delete calls %d)" % (
+                         n, valid, wakes, tries, swaps, "found" if marks[3] else "none", "found" if marks[4] else "none",
+                         "%#x" % marks[5] if marks[5] else "unknown", pst, "%#x" % pflag if pflag is not None else "-",
+                         s.get("paused"), deletes))
                 last_marks = marks
     note("done: %d samples in %.0f s, %d kept (%.1f MB), %d failed reads" % (n, time.time() - start, kept, size / 1e6, errors))
 

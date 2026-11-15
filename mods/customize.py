@@ -5,6 +5,11 @@
         emulator's mods folder (seconds; nothing else there is touched)
     venv\Scripts\python.exe mods\customize.py --remove    take the folder out again (any session
         may, when it is in the way of its own install; --install puts it back)
+    venv\Scripts\python.exe mods\customize.py --install-only   copy the folder as last built
+        (the build takes minutes since the palettes); refused unless that build was made
+        over the very files that are installed now (build-custom\built-over.json)
+    (--parts and --clothes, the switches the clothing colours were built with until they
+    passed in game, are still taken and mean nothing)
 
 It holds the build lock for its run and stamps the install record as "customize"
 (tools\modstate.py; OOT_SESSION gives another name).
@@ -112,22 +117,33 @@ DEAD_SHA1 = "3627f0da660a1f81b4638a052b52b1e3c906fb52"      # its bytes in game 
 
 # The options: (key, label, values). Value 0 is what the game shows without us. The first
 # ROWS stand left of the character, the others right. Their numbers are kept in unsaved
-# Ints "CharacterMenu_Custom<key>"; nothing reads them yet (this step is the mode).
+# Ints "CharacterMenu_Custom<key>".
+# What is built (for the v0.2.0 release the main session left out what changed nothing,
+# snaildev: "disable the unimplemented ones for now"; Outfit and Accessory are still that and
+# are no rows at all until they do something):
+# - without a switch: Hair Color, Eye Color, Clothing Color | Equipment. Clothing Color
+#   passed in game on 2026-11-14 (snaildev: Link, Saria, young Zelda, young Malon, the colours'
+#   names, the field: all "Yes"); `--clothes`, which built it until then, is still taken
+#   and means nothing.
+# - `--parts` (2026-11-14, built offline, not seen): Hair Color, Eye Color, Equipment |
+#   Clothing Color, Clothing Color 2, Clothing Color 3: a colour a PART of the clothes
+#   (clothing by textures, below). snaildev's look at the one colour: "most NPCs seem to have
+#   at least 1 alternate color (links vest is slightly darker green, but when I change
+#   colors, everything changes except his belt/belt buckle, which it would also be able to
+#   choose different options for those)".
+CLOTH_VALUES = ["Default", "Green", "Red", "Blue", "Purple", "Yellow", "Black", "White"]
+CLOTH_KEYS = ("Clothes", "Clothes2", "Clothes3")        # the three clothing colours' options (the first alone without --parts)
+PARTS = True            # three clothing colours, a part of the clothes each (a switch's until snaildev's look of 2026-11-14: "those clothing colors work")
 OPTIONS = [
     ("Hair", "Hair Color", ["Default", "Blonde", "Brown", "Black", "Red", "Orange", "Green", "Blue", "Pink", "White"]),
     ("Eyes", "Eye Color", ["Default", "Blue", "Green", "Brown", "Gray", "Red", "Violet", "Gold"]),
-    ("Clothes", "Clothing Color", ["Default", "Green", "Red", "Blue", "Purple", "Yellow", "Black", "White"]),
-    ("Outfit", "Outfit", ["Default"]),
-    ("Gear", "Equipment", ["Shown", "Hidden"]),
-    ("Accessory", "Accessory", ["None"]),
 ]
-# For the release (main session, 2026-11-14, snaildev: "most buttons are unfinished except hair color, eye
-# color, and show equipment, so disable the unimplemented ones for now"): the options that change nothing
-# yet are left out, so the mode shows Hair Color, Eye Color and Equipment in the left column.
-# `--all-options` builds all six as before (the customize session's own work on the other three).
-UNFINISHED = ("Clothes", "Outfit", "Accessory")
-if "--all-options" not in sys.argv:
-    OPTIONS = [o for o in OPTIONS if o[0] not in UNFINISHED]
+if PARTS:
+    OPTIONS += [("Gear", "Equipment", ["Shown", "Hidden"])]
+    OPTIONS += [(k, "Clothing Color" + (" %d" % (n + 1) if n else ""), list(CLOTH_VALUES)) for n, k in enumerate(CLOTH_KEYS)]
+else:
+    OPTIONS += [("Clothes", "Clothing Color", list(CLOTH_VALUES)), ("Gear", "Equipment", ["Shown", "Hidden"])]
+CLOTHES_ON = True           # the clothing palettes are built (they were a switch's until Clothing Color passed)
 ROWS = 3
 
 
@@ -1529,12 +1545,20 @@ POUCH_GOT = 0x84C9E0D0              # -> the variable that holds the pouch; its 
 # the shield; then the thirteen "slots" of the game's sync routine from +0xe0: 8 the head
 # (a mask), 12 the sword's sheath, 16 the ocarina, 17 a gauntlet, 20 the ocarina's holder.
 # "Hidden" clears the "shown" bit (build.ACTOR_SHOWN) of the actors in GEAR_HANDLES:
-# everything but the item in hand, the head and 17 to 19 (armour). The first cut had only
+# everything but the item in hand, the head and 17 to 19. The first cut had only
 # the thirteen: sheath and ocarina went, sword and shield stayed (snaildev).
+# Which handle is what, from the game's code (2026-11-14; README, player models, "The
+# equipment's 21 handles"): the routine that puts a finished piece into its handle
+# (0x80398360) takes for 9, 10 and 11 the same kind of actor as for the head (armour): they
+# are the adult's Goron / Zora tunic, Iron / Hover boots and gauntlets, which are drawn IN
+# PLACE of materials of the body that the piece hides. Until then they were hidden with
+# the gear (the mask was 0x11FEFD; snaildev's looks were as a child, who has none of them),
+# which would have left an adult in a tunic without a body there: they are out of the mask
+# since. 17 (the child's Goron bracelet), 18 (the Stone of Agony) and 19 stay shown as before.
 MENU_GLOBAL = 0x84E9CFA8            # the game's "[x + 0x4e8]" menu actor manager hangs on what this holds
 MODEL_TYPE_GOT = 0x84CD9D58         # what the hair routine compares the model component's +0xf8 with
 GEAR_FIRST, GEAR_COUNT = 0x20, 21
-GEAR_HANDLES = 0x11FEFD
+GEAR_HANDLES = 0x11F0FD
 # The options are kept per character (snaildev: "this will be tracked separately for each
 # character"): the six Ints the graph reads and writes are the options of the character
 # whose number KEEP_OWNER holds; an Int a stored number (GameData knows an Int by a hash
@@ -1587,10 +1611,12 @@ HAIR_NAMES = ("Mt_Hairs", "Mt_HairLong", "Mt_Hair_Front", "Mt_Hair1", "Mt_Hair3"
 EYE_NAME = "Mt_Eye_Inner"
 PARAM_NAMES = ("ns_param_color0", "ns_param_color1", "ns_param_color2")
 COMMON_IRIS_HUE = 0.608
-D_PARAM, D_NAMES = 0x18, 0x48
+D_CLOTHES = 0x18                        # the three clothing colours' options' hashes (and four bytes to spare)
+D_PARAM, D_NAMES = 0x28, 0x58
 D_EYE = D_NAMES + 16 * len(HAIR_NAMES)
 D_HAIRS = D_EYE + 16
-D_EYES = (D_HAIRS + 6 * len(HAIR_COLOURS) + 7) & ~7
+D_BROWS = D_HAIRS + 6 * len(HAIR_COLOURS)       # the eyebrows' colour 0 and colour 1 a hair colour, as the hair's own table before it
+D_EYES = (D_BROWS + 6 * len(HAIR_COLOURS) + 7) & ~7
 D_MASK = (D_EYES + 3 * len(EYE_COLOURS) + 7) & ~7
 D_HUE = D_MASK + 16
 
@@ -1648,6 +1674,400 @@ COUNT_PATCHES = ((0x803819C0, "w19", "x22"), (0x803802D4, "w23", "x26"), (0x8045
                  (0x814EBE98, "w8", "x0"), (0x814EBF40, "w10", "x0"))
 COLOUR_TEX_NODE, COLOUR_TEX = "SeqExecuteLoadStartupMap", (0x83BCCE70, 0x83BCD000)
 COLOUR_TEX_SHA1 = "b78d8b76d0675afa93169b2850c7df1205c03a12"
+
+# Clothing by textures (2026-11-14; snaildev: "Let's keep working on getting clothing colors
+# working"). The same way as the hair: a palette of recoloured copies of a material's own
+# colour texture behind its samplers' own, and the engine's routine puts the Clothing Color
+# option's entry in the first place. What is different:
+# - WHICH materials and WHICH of their colours. A character's clothes are several
+#   materials, and a clothing texture holds several colours (Link's vest: the green, the
+#   brown belt, the pale trim). So a clothing colour replaces ONE colour of a character,
+#   his clothes' main one, wherever his clothing textures have it, and leaves the others.
+#   The main colour is read from the model: every triangle of every clothing material is
+#   weighed by its area and the texel at its UVs (cloth_facts), and cloth_main decides: a
+#   hue, where one hue covers 35% or more of the clothes; else the largest clothing
+#   material's own hue, where that covers a fifth of it (a white outfit with a coloured
+#   vest: the game's own colour variants of such models differ in that accent); else the
+#   unsaturated part of the clothes, "neutral" (Malon's cream dress, an Iron Knuckle's
+#   armour). Clothing materials are all but the ones CLOTH_NOT names (skin, face, eyes,
+#   hair, teeth, weapons, metal, footwear, stones); a creature has none.
+# - Each clothing texture then gets its copies if enough of it is that colour: within
+#   CLOTH_HUE_OUT of the texture's own peak nearest the character's hue, or unsaturated
+#   (cloth_weight); cloth_fn turns that part to the colour (as hair_fn does the whole
+#   hair: the hue, the saturation about the part's mean, the brightness scaled) and blends
+#   by the weight. A texture two characters share gets one set of copies while they agree
+#   on what its colour is (the copies' names carry a letter a kind: palette_name).
+# - Most clothing textures are ASTC, which tools\texrecolor.py decodes and encodes again,
+#   block by block (README, player models, "Clothing colours").
+# - Every material of the model that draws a recoloured texture gets the palette (the hat's
+#   band draws the vest's texture). The code tells a clothing palette from a hair palette
+#   by its length (cz_cloth), so the two must differ.
+# - A colour a PART (--parts; snaildev after his look at the one colour: the vest is another
+#   green than the tunic, the belt changes with nothing). A part is whole materials: every
+#   clothing material has a main colour of its OWN (cloth_own: what a fifth of its surface
+#   shows), the materials of one texture and one colour are a piece, pieces of one hue
+#   (within CLOTH_MERGE: Link's tunic and his shorts are one weave in two textures) are one
+#   part. The part that has the character's main colour is the first, the next two by area
+#   the second and third; a smaller part follows the part nearest its hue (within
+#   CLOTH_FOLLOW) or keeps its colour (cloth_parts). Each material then gets the copies of
+#   its texture for ITS colour, so two materials of one texture can have two colours (a
+#   shirt and trousers painted in one texture). What whole materials cannot do: two colours
+#   INSIDE one material (a villager whose outfit is one material: 41 of 107 characters);
+#   that needs the model's triangles divided between two materials, which is not built.
+# - The code tells the three colours' palettes, and the hair's, apart by their LENGTH:
+#   CLOTH_LENGTHS (7, 8, 10: the copies and, to fill, the last one again; 9 is the hair's).
+#   A name twice in a material's list is nothing new to the game (462 of its own materials
+#   have one).
+CLOTHES_FLAGS = tuple("CharacterMenu_Custom" + k for k in CLOTH_KEYS)       # (GameData has the Ints of the options that are built)
+CLOTH_MERGE, CLOTH_FOLLOW, CLOTH_SLOTS = 0.02, 0.05, 3        # (0.035 left adult Link's tunic trim, 0.048 from the weave, green)
+# The order of the parts (snaildev's look at the three colours, 2026-11-14: on Link 1 was the tunic, 2 the vest, 3 the
+# leather, "as expected"; on Saria 1 was the vest, 2 the boots and belt and 3 "the base"; on young Zelda 2 "does
+# nothing", it was her petticoat, and 3 "should be the secondary"): the parts of the character's main colour first,
+# the garment before what is worn over it; then the others by area, what is worn under the clothes last.
+CLOTH_OVER, CLOTH_UNDER = ("Vest", "Cape", "Mant"), ("Panie", "Petticoat")
+# name -> (hue, saturation, brightness, how much of the brightness is the colour's own: the rest is the garment's)
+CLOTH_TEXTURE = {
+    "Green": (0.30, 0.62, 0.36, 0.7),
+    "Red": (0.995, 0.80, 0.48, 0.7),
+    "Blue": (0.61, 0.70, 0.46, 0.7),
+    "Purple": (0.77, 0.55, 0.42, 0.7),
+    "Yellow": (0.14, 0.78, 0.74, 0.8),
+    "Black": (0.60, 0.10, 0.09, 1.0),
+    "White": (0.11, 0.05, 0.86, 1.0),
+}
+CLOTH_NOT = ("Skin", "Face", "Eye", "Hair", "Teeth", "Teet", "ChildTeeth", "Mouth", "Shadow", "Hand", "Head", "Rock", "Fur", "Feather",
+             "Knife", "Blade", "Weapon", "Sword", "Spear", "Broom", "Flute", "Stone", "Gem", "Jewel", "Crystal", "Koume", "Kotake",
+             "BossHead", "Glitter", "Snow", "Lens", "Weak", "Organ", "Score", "Leaves", "Flowers", "FrizzlePatch", "Ponytail",
+             "BodyHair", "Metal", "Ring", "Chain", "Buckle", "Buttons", "Shoes", "Boots", "Sandal", "Mask", "FireHair", "IceHair",
+             "WaistFur", "Body_Fur", "Body_AlphaMask")
+CLOTH_HUE_IN, CLOTH_HUE_OUT = 0.065, 0.115      # a hue this near the main one is it wholly / not at all
+CLOTH_BINS = 72                                 # hues are counted in bins this many round
+CLOTH_TAGS = "cdefgijklmnopqrstuvwxyzab"        # (no h: the hair's)
+CLOTH_VERSION = 2                               # of the recolouring: a change here makes every cached copy anew
+CLOTH_FACTS = 2                                 # of what cloth_facts keeps of a model (2: the footwear too)
+# how many textures a material has behind its samplers' own: the first, second, third clothing colour's palette
+CLOTH_LENGTHS = [x for x in range(len(CLOTH_TEXTURE), len(CLOTH_TEXTURE) + 4) if x != len(HAIR_TEXTURE)][:CLOTH_SLOTS]
+
+
+def cloth_material(name, names):
+    """Is a material clothing, by its name and the model's other materials' names."""
+    stem = name[3:] if name.startswith("Mt_") else name
+    if stem in ("Hand", "Teet") or any(stem.startswith(x) for x in CLOTH_NOT if x not in ("Hand", "Teet")):
+        return False
+    return stem != "Body" or any(n.startswith("Mt_Skin") for n in names)       # a body beside a skin is a suit; alone it is the creature
+
+
+def cloth_footwear(name):
+    """Is a material footwear by its name (boots, shoes, sandals)? Footwear is no clothing: it has
+    no say in a character's main colour and makes no part of its own, but it goes with the
+    part of its hue (cloth_parts)."""
+    stem = name[3:] if name.startswith("Mt_") else name
+    return stem.startswith(("Shoes", "Boots", "Sandal"))
+
+
+def _smooth(x, lo, hi):
+    import numpy as np
+    t = np.clip((x - lo) / (hi - lo), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def cloth_weight(hsv, mode, centre):
+    """(n, 3) hue, saturation, brightness -> (n,) how much a texel is the clothes' main colour:
+    mode "hue": by how near its hue is to `centre` (not the greys, not the blacks); mode
+    "neutral": the greys, whites and blacks."""
+    import numpy as np
+    h, s, v = hsv[:, 0], hsv[:, 1], hsv[:, 2]
+    if mode == "hue":
+        dh = np.abs(((h - centre + 0.5) % 1.0) - 0.5)
+        return np.clip((CLOTH_HUE_OUT - dh) / (CLOTH_HUE_OUT - CLOTH_HUE_IN), 0.0, 1.0) * _smooth(s, 0.10, 0.22) * _smooth(v, 0.04, 0.10)
+    return np.maximum(1.0 - _smooth(s, 0.20, 0.34), 1.0 - _smooth(v, 0.06, 0.12))
+
+
+def cloth_fn(mode, centre, s_mean, v_mean, target):
+    """What a clothing colour does to a texel of a clothing texture whose main colour is
+    (mode, centre), of mean saturation and brightness (s_mean, v_mean)."""
+    import math
+    import numpy as np
+    import texrecolor
+    hue, sat, val, own = target
+    vm = min(max(v_mean, 0.03), 0.97)
+    goal = val ** own * vm ** (1.0 - own)
+    gamma = max(math.log(goal) / math.log(vm), 0.3)        # (0.45 at first: white on Link's dark green came out mid grey, 0.51 to 0.59)
+
+    def fn(rgb):
+        hsv = texrecolor.rgb_to_hsv(rgb)
+        w = cloth_weight(hsv, mode, centre)
+        if mode == "hue":
+            dh = ((hsv[:, 0] - centre + 0.5) % 1.0) - 0.5
+            h2 = hue + 0.5 * dh
+            s2 = np.clip(sat * np.sqrt(hsv[:, 1] / max(s_mean, 0.05)), 0.0, 1.0)
+        else:
+            h2 = np.full(len(hsv), hue)
+            s2 = np.full(len(hsv), sat)
+        v = np.clip(hsv[:, 2], 0.0, 1.0)
+        v2 = v * (goal / vm) if goal < vm else np.power(v, gamma)      # darker: scaled; brighter: black stays black
+        new = texrecolor.hsv_to_rgb(np.stack([h2, s2, v2], axis=1))
+        return rgb + (new - rgb) * w[:, None]
+    return fn
+
+
+def _hue_peak(hist, around=None, reach=None, half=4):
+    """(bin, hue, weight) of the largest window of 2 * half + 1 bins of a hue histogram; with
+    `around` (a hue) and `reach` (bins): of the windows whose middle is that near it."""
+    import numpy as np
+    h = np.asarray(hist, dtype=np.float64)
+    n = len(h)
+    sm = sum(np.roll(h, k) for k in range(-half, half + 1))
+    bins = range(n) if around is None else [(int(around * n) + k) % n for k in range(-reach, reach + 1)]
+    i = max(bins, key=lambda b: sm[b])
+    idx = [(i + k) % n for k in range(-half, half + 1)]
+    ang = (np.array(idx) + 0.5) / n * 2 * np.pi
+    hue = float(np.arctan2((h[idx] * np.sin(ang)).sum(), (h[idx] * np.cos(ang)).sum()) / (2 * np.pi) % 1.0) if h[idx].sum() > 0 else (i + 0.5) / n
+    return i, hue, float(sm[i])
+
+
+def cloth_main(mats):
+    """The main colour of a model's clothes, from cloth_facts' numbers for its materials:
+    ("hue", hue), ("neutral", None) or None (no clothes, or nothing to tell)."""
+    import numpy as np
+    cand = {n: r for n, r in mats.items() if not r.get("foot")}        # (cloth_facts keeps the clothing materials, and the footwear, which has no say here)
+    area = sum(r["area"] for r in cand.values())
+    if area <= 0:
+        return None
+    hist = np.sum([np.array(r["hist"]) for r in cand.values()], axis=0)
+    _bin, hue, peak = _hue_peak(hist)
+    if peak >= 0.35 * area:
+        return ("hue", hue)
+    big = max(cand.values(), key=lambda r: r["area"])
+    _bin, hue, peak = _hue_peak(big["hist"])
+    if peak >= 0.20 * big["area"]:
+        return ("hue", hue)
+    if big["grey"] >= 0.20 * big["area"]:
+        return ("neutral", None)
+    return None
+
+
+def _hue_apart(a, b):
+    return abs(((a - b + 0.5) % 1.0) - 0.5)
+
+
+def cloth_own(rec):
+    """A clothing material's OWN main colour, from what its surface shows: ("hue", hue) where
+    one hue covers a fifth of it, else ("neutral", None) where a fifth of it is grey, else None."""
+    if rec["area"] <= 0:
+        return None
+    _bin, hue, peak = _hue_peak(rec["hist"])
+    if peak >= 0.20 * rec["area"]:
+        return ("hue", hue)
+    if rec["grey"] >= 0.20 * rec["area"]:
+        return ("neutral", None)
+    return None
+
+
+def cloth_parts(mats, main):
+    """The parts of a model's clothes, a clothing colour each (see CLOTHES_FLAGS above), from
+    cloth_facts' numbers for its materials and its main colour (cloth_main).
+    -> ({material: (which colour: 0, 1, 2; the material's own main colour)},
+        [(which colour or None, share of the clothes, the part's colour, [materials])], largest first)"""
+    feet = {n: r for n, r in mats.items() if r.get("foot")}
+    mats = {n: r for n, r in mats.items() if not r.get("foot")}
+    total = sum(r["area"] for r in mats.values())
+    parts = []
+    for name, rec in sorted(mats.items(), key=lambda kv: (-kv[1]["area"], kv[0])):
+        own = cloth_own(rec)
+        if own is None:
+            continue
+        same = [q for q in parts if q["colour"][0] == own[0]]
+        # a piece: the materials of one texture and one colour; then pieces of one hue are one part
+        p = next((q for q in same if rec["tex"] in q["textures"] and (own[0] != "hue" or _hue_apart(q["colour"][1], own[1]) <= 0.06)), None) or \
+            next((q for q in same if own[0] == "hue" and _hue_apart(q["colour"][1], own[1]) <= CLOTH_MERGE), None)
+        if p is None:
+            p = {"colour": own, "area": 0.0, "members": [], "textures": set()}
+            parts.append(p)
+        p["area"] += rec["area"]
+        p["members"].append((name, own))
+        p["textures"].add(rec["tex"])
+    if not parts or total <= 0:
+        return {}, []
+    order = sorted(parts, key=lambda q: -q["area"])
+
+    def named(q, words):            # is the part's largest material one of these
+        return any(w in q["members"][0][0] for w in words)
+    like = [q for q in order if main is not None and q["colour"][0] == main[0] and (main[0] != "hue" or _hue_apart(q["colour"][1], main[1]) <= 0.06)]
+    like = [q for q in like if q is like[0] or q["area"] >= 0.15 * total] or order[:1]      # (a small piece of the main colour is not a row of its own before the others)
+    like.sort(key=lambda q: named(q, CLOTH_OVER))                   # (stable: by area, the vest after the tunic)
+    rest = [q for q in order if not any(q is x for x in like)]
+    rest.sort(key=lambda q: named(q, CLOTH_UNDER))
+    slots = [q for k, q in enumerate(like + rest) if k == 0 or q["area"] >= 0.04 * total][:CLOTH_SLOTS]
+    given, summary = {}, []
+    for q in order:
+        slot = next((k for k, x in enumerate(slots) if x is q), None)
+        if slot is None and q["area"] <= 0.10 * total:      # a small part (trim): with the part nearest its hue, or the first grey part
+            # (a larger one is a fourth garment and keeps its colour: adult Link's pale undershirt is 0.04 of a turn from his leather)
+            if q["colour"][0] == "hue":
+                near = sorted((_hue_apart(x["colour"][1], q["colour"][1]), k) for k, x in enumerate(slots) if x["colour"][0] == "hue")
+                slot = near[0][1] if near and near[0][0] <= CLOTH_FOLLOW else None
+            else:
+                slot = next((k for k, x in enumerate(slots) if x["colour"][0] != "hue"), None)
+        if slot is not None:
+            for name, own in q["members"]:
+                given[name] = (slot, own)
+        summary.append((slot, q["area"] / total, q["colour"], [name for name, _own in q["members"]]))
+    # Footwear makes no part; where it is a part's own hue (within CLOTH_MERGE, as pieces are one part) it goes with that
+    # part, as child Link's boots, which are his leather material itself, go with his belt. (snaildev, 2026-11-14, after the
+    # parts' order: "Only thing to fix is adult link's boots don't change with color 3 (the boots and flaps both stay
+    # default)": his are materials of their own, Mt_Boots and Mt_Boots_Far, and footwear was no clothing at all until
+    # then. The flaps, 0.037 of a turn from the leather, draw the boots' texture and so follow the boots.)
+    for name, rec in sorted(feet.items()):
+        own = cloth_own(rec)
+        if own and own[0] == "hue":
+            near = sorted((_hue_apart(x["colour"][1], own[1]), k) for k, x in enumerate(slots) if x["colour"][0] == "hue")
+            if near and near[0][0] <= CLOTH_MERGE:
+                given[name] = (near[0][1], own)
+                summary.append((near[0][1], rec["area"] / total, own, [name]))
+    return given, summary
+
+
+def cloth_shows(rec, main):
+    """Does a clothing material's SURFACE show the main colour: a twentieth of it within
+    CLOTH_HUE_OUT of the hue, or a tenth of it grey. (A texture can have the colour where no
+    triangle draws it: a quarter of adult Link's glove texture is a yellow green that his
+    gloves do not show; by the texture alone his gloves got the palette.)"""
+    if rec["area"] <= 0:
+        return False
+    if main[0] != "hue":
+        return rec["grey"] >= 0.10 * rec["area"]
+    b, reach = int(main[1] * CLOTH_BINS), int(round(CLOTH_HUE_OUT * CLOTH_BINS))
+    return sum(rec["hist"][(b + k) % CLOTH_BINS] for k in range(-reach, reach + 1)) >= 0.05 * rec["area"]
+
+
+def texture_file(name, unify):
+    """(the texture whose file a texture name is drawn from, that file's path) or (None, None):
+    an installed folder's, the game's, or the file of the name it is unified with."""
+    for tex in (name, unify.get(name)):
+        if not isinstance(tex, str):
+            continue
+        path = os.path.join(nxfmt.ROMFS, "Tex", tex + ".bntx.zs")
+        try:
+            path = resolve("Tex/%s.bntx.zs" % tex)[1]
+        except AssertionError:
+            pass
+        if os.path.exists(path):
+            return tex, path
+    return None, None
+
+
+def cloth_facts(models, unify):
+    """{(number, age): {material: {"tex", "area", "hist", "grey"}}}: for every material of every
+    player model that has a colour texture this can recolour, what its surface shows: every
+    triangle's area (as stored: a rigid part's vertices are its bone's, which leaves the areas
+    as they are) at three points, the texel at their UVs; "hist" the area by hue (CLOTH_BINS
+    bins) of the coloured texels, "grey" the area of the others (grey, white, black), "area"
+    both. Kept in build-custom\\cloth-facts.json by the model files' sizes and dates."""
+    import json
+    import bfres
+    import numpy as np
+    import npcportrait as pp
+    import texrecolor
+    cache_path = os.path.join(BUILD_CUSTOM, "cloth-facts.json")
+    try:
+        cache = json.load(open(cache_path, encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    textures = {}
+
+    def texels(name):
+        if name not in textures:
+            textures[name] = None
+            tex, path = texture_file(name, unify)
+            if path:
+                data = nxfmt.read(path)
+                t = texrecolor.data_range(data)[0]
+                if texrecolor.can_recolour(t):
+                    textures[name] = (texrecolor.decoded(data), t.comp[3] == 5)
+        return textures[name]
+
+    def geometry(f, s):
+        d = f.data
+        base = f.sections[1]["pos"]
+        vtx = f.u64(s.off + 0x10)
+        assert d[vtx:vtx + 4] == b"FVTX"
+        off, nattr, nbuf, _idx, count = struct.unpack_from("<IBBHI", d, vtx + 0x48)
+        sizes = [f.u32(f.u64(vtx + 0x30) + 0x10 * i) for i in range(nbuf)]
+        strides = [f.u32(f.u64(vtx + 0x38) + 0x10 * i) for i in range(nbuf)]
+        starts, at = [], base + off
+        for size in sizes:
+            at = (at + 7) & ~7
+            starts.append(at)
+            at += size
+        attrs = {}
+        arr = f.u64(vtx + 8)
+        for i in range(nattr):
+            name = f.string(f.u64(arr + i * 0x10))
+            fmt, _pad, aoff, bi = struct.unpack_from("<HHHH", d, arr + i * 0x10 + 8)
+            if name in ("_p0", "_u0"):
+                buf = np.frombuffer(bytes(d[starts[bi]:starts[bi] + sizes[bi]]), np.uint8)
+                attrs[name] = pp._attr(buf, strides[bi], count, aoff, fmt)
+        mesh = f.u64(s.off + 0x18)
+        ioff, prim, ifmt, icount, first = struct.unpack_from("<5I", d, mesh + 0x20)
+        assert prim == 3 and ifmt in (1, 2) and icount % 3 == 0, ("mesh", s.name, prim, ifmt)
+        dt = "<u2" if ifmt == 1 else "<u4"
+        tris = np.frombuffer(bytes(d[base + ioff:base + ioff + icount * np.dtype(dt).itemsize]), dt).astype(np.int64) + first
+        assert tris.max() < count, s.name
+        return attrs["_p0"][:, :3].astype(np.float64), attrs["_u0"], tris.reshape(-1, 3)
+
+    out = {}
+    for number, age, rel, path in models:
+        key = "%d.%d|%s|%d|%d" % (CLOTH_VERSION, CLOTH_FACTS, path, os.path.getsize(path), int(os.path.getmtime(path)))
+        if key not in cache:
+            f = bfres.Fres(nxfmt.read(path))
+            m = f.model()
+            per = {}
+            for s in m.shapes:
+                name = m.material_names[s.material]
+                tex = pp.material_info(f, m, s.material).get("_a0")
+                if tex is None or not (cloth_material(name, m.material_names) or cloth_footwear(name)) or texels(tex) is None:
+                    continue
+                rgba, cut = texels(tex)
+                try:
+                    pos, uv, tris = geometry(f, s)
+                except KeyError:            # a shape without positions or UVs
+                    continue
+                a, b, c_ = pos[tris[:, 0]], pos[tris[:, 1]], pos[tris[:, 2]]
+                wt = 0.5 * np.linalg.norm(np.cross(b - a, c_ - a), axis=1) / 3.0
+                h, w = rgba.shape[:2]
+                rec = per.setdefault(name, {"tex": tex, "area": 0.0, "hist": np.zeros(CLOTH_BINS), "grey": 0.0, "foot": cloth_footwear(name)})
+                assert rec["tex"] == tex
+                for wa, wb, wc in ((2 / 3, 1 / 6, 1 / 6), (1 / 6, 2 / 3, 1 / 6), (1 / 6, 1 / 6, 2 / 3)):
+                    p = wa * uv[tris[:, 0]] + wb * uv[tris[:, 1]] + wc * uv[tris[:, 2]]
+                    px = rgba[np.floor((p[:, 1] % 1.0) * h).astype(int) % h, np.floor((p[:, 0] % 1.0) * w).astype(int) % w].astype(np.float64) / 255.0
+                    shown = px[:, 3] > 0.5 if cut else np.ones(len(px), bool)
+                    hsv = texrecolor.rgb_to_hsv(px[:, :3])
+                    coloured = shown & (hsv[:, 1] > 0.22) & (hsv[:, 2] > 0.10)
+                    rec["area"] += float(wt[shown].sum())
+                    rec["grey"] += float(wt[shown & ~coloured].sum())
+                    np.add.at(rec["hist"], np.floor(hsv[coloured, 0] * CLOTH_BINS).astype(int) % CLOTH_BINS, wt[coloured])
+            for rec in per.values():
+                rec["hist"] = [round(float(x), 7) for x in rec["hist"]]
+            cache[key] = per
+        out[(number, age)] = cache[key]
+    os.makedirs(BUILD_CUSTOM, exist_ok=True)
+    json.dump(cache, open(cache_path, "w", encoding="utf-8"))
+    return out
+
+
+def brow_colour(target):
+    """The eyebrows' colour for a hair colour: the colour the hair's texture gets (HAIR_TEXTURE:
+    hue, saturation, brightness as stored), as the linear colour a material's colour
+    parameters hold. The eyebrow material (Mt_Eyebrow, 16 of the characters; the others'
+    eyebrows are painted in the face's texture) draws a grey texture in its colour 0 and
+    colour 1, and in the game's own models those are the hair texture's colour made linear
+    (Link: colour 0 = 0.309 0.151 0.052, his hair texture's mean made linear 0.307 0.158
+    0.033). Until snaildev's word (2026-11-14: "we still don't have a separate eyebrow color
+    ... it should match the hair") the eyebrows got the hair's SHINE colours, which are
+    brighter and redder than the hair looks."""
+    import colorsys
+    return tuple(x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in colorsys.hsv_to_rgb(*target))
 
 
 def add_textures(data, material, names):
@@ -1828,13 +2248,95 @@ def write_palettes(facts):
         made[tex] = names
         return names
 
-    models = materials = model_bytes = 0
-    for number, age, rel, path in player_models(facts):
+    # ---- the clothes (CLOTHES_ON): per texture and kind of main colour, the copies' names
+    cloth_colours = [v for k, _l, values in OPTIONS if k == "Clothes" for v in values[1:]]
+    assert not CLOTHES_ON or (cloth_colours == list(CLOTH_TEXTURE) and len(cloth_colours) <= 9)
+    assert len(CLOTH_TEXTURE) != len(HAIR_TEXTURE), "the code tells a clothing palette from a hair palette by its length"
+    cloth_made, cloth_tags, cloth_kinds = {}, {}, {}        # (texture, kind) -> names or None; texture -> {kind: letter}; (name, main) -> kind
+    cloth_stats = {"encoded": 0, "plan": []}
+
+    def cloth_palette(name, main):
+        """The names of a texture's copies for a model whose clothes' main colour is `main`, or
+        None (not enough of the texture is that colour, or it cannot be recoloured)."""
+        nonlocal stock_names
+        import numpy as np
+        mode, hue = main
+        ask = (name, mode, None if hue is None else int(hue * CLOTH_BINS))
+        if ask in cloth_kinds:
+            return cloth_made[cloth_kinds[ask]]
+        tex, src = texture_file(name, unify)
+        cloth_kinds[ask] = (tex, None)
+        cloth_made.setdefault((tex, None), None)
+        if src is None:
+            return None
+        raw = open(src, "rb").read()
+        data = nxfmt.unzs(raw, tex + ".bntx.zs")
+        t = texrecolor.data_range(data)[0]
+        if not texrecolor.can_recolour(t) or t.name != tex:
+            return None
+        px = texrecolor.decoded(data)
+        step = max(1, int((px.shape[0] * px.shape[1] / 250000.0) ** 0.5))       # a quarter of a million texels say enough
+        px = px[::step, ::step].reshape(-1, 4).astype(np.float64) / 255.0
+        if t.comp[3] == 5 and (px[:, 3] > 0.5).any():
+            px = px[px[:, 3] > 0.5]
+        hsv = texrecolor.rgb_to_hsv(px[:, :3])
+        if mode == "hue":           # the texture's own peak nearest the model's hue: two models a little apart agree on it
+            coloured = (hsv[:, 1] > 0.22) & (hsv[:, 2] > 0.10)
+            hist = np.bincount(np.floor(hsv[coloured, 0] * CLOTH_BINS).astype(int) % CLOTH_BINS, minlength=CLOTH_BINS)
+            centre_bin, _hue, _peak = _hue_peak(hist, around=hue, reach=6, half=2)
+            kind, centre = ("hue", centre_bin), (centre_bin + 0.5) / CLOTH_BINS
+        else:
+            kind, centre = ("neutral", None), None
+        cloth_kinds[ask] = (tex, kind)
+        if (tex, kind) in cloth_made:
+            return cloth_made[(tex, kind)]
+        cloth_made[(tex, kind)] = None
+        w = cloth_weight(hsv, mode, centre)
+        share = float(w.mean())
+        if share < (0.02 if mode == "hue" else 0.05):
+            return None
+        s_mean, v_mean = float((w * hsv[:, 1]).sum() / w.sum()), float((w * hsv[:, 2]).sum() / w.sum())
+        tags = cloth_tags.setdefault(tex, {})
+        tags[kind] = CLOTH_TAGS[len(tags)]
+        if stock_names is None:
+            stock_names = {n[:-len(".bntx.zs")] for n in os.listdir(os.path.join(nxfmt.ROMFS, "Tex"))}
+        names = []
+        for k, colour in enumerate(cloth_colours, 1):
+            new = palette_name(tex, tags[kind], k)
+            assert new not in stock_names, new
+            key = "%d|%d|%d|%s|%s|%s|%.4f|%.4f" % (CLOTH_VERSION, len(raw), int(os.path.getmtime(src)), colour, CLOTH_TEXTURE[colour],
+                                               kind, s_mean, v_mean)
+            cached = os.path.join(cache_dir, new + ".bntx.zs")
+            if index.get(new) != key or not os.path.exists(cached):
+                fn = cloth_fn(mode, centre, s_mean, v_mean, CLOTH_TEXTURE[colour])
+                out = texrecolor.recolour(data, new, fn)
+                texrecolor.check(data, out, fn)
+                assert len(out) == len(data)
+                with open(cached, "wb") as fh:
+                    fh.write(nxpack.zs_compress_like(out, raw))
+                index[new] = key
+                cloth_stats["encoded"] += 1
+                if cloth_stats["encoded"] % 50 == 0:        # a first build makes hundreds: keep what is made
+                    json.dump(index, open(index_path, "w", encoding="utf-8"))
+            packed = open(cached, "rb").read()
+            B.write(MOD, "Tex/%s.bntx.zs" % new, packed, len(data), B.SIZES, size=entry("Tex/%s.bntx" % tex))
+            names.append(new)
+        cloth_stats["plan"].append("%-58s %-9s %-13s %4.0f%% of it, saturation %.2f, brightness %.2f -> %s" % (
+            tex, t.format, "neutral" if mode != "hue" else "hue %.3f" % centre, 100 * share, s_mean, v_mean, "%s .. %s" % (names[0], names[-1])))
+        cloth_made[(tex, kind)] = names
+        return names
+
+    model_list = player_models(facts)
+    clothes = cloth_facts(model_list, unify) if CLOTHES_ON else {}
+    cloth_models, cloth_materials, mains, plans, colours_of = 0, 0, {}, {}, {}
+    models = hair_models = materials = model_bytes = 0
+    for number, age, rel, path in model_list:
         raw = open(path, "rb").read()
         data = nxfmt.unzs(raw, rel)
         f = bfres.Fres(data)
         m = f.model()
         new = data
+        haired = set()
         for i, name in enumerate(m.material_names):
             if name not in PALETTE_MATERIALS or (name == HAIR_NAMES[0] and not facts[number][0]):
                 continue
@@ -1846,18 +2348,78 @@ def write_palettes(facts):
                 skipped.append((number, age, name, tex["_a0"]))
                 continue
             new = add_textures(new, name, names)
+            haired.add(name)
             materials += 1
+        mats = clothes[(number, age)]
+        main = cloth_main(mats)
+        mains[(number, age)] = main
+        # which of the clothing colours each of its clothing materials has, and which colour of the material that is
+        if PARTS:
+            given, plans[(number, age)] = cloth_parts(mats, main)
+        else:
+            given = {name: (0, main) for name, rec in mats.items() if main and cloth_shows(rec, main)}
+        by_material, by_texture = {}, {}        # a clothing material's palette; a texture's, for whatever else draws it (the largest material's)
+        for name, (slot, colour) in sorted(given.items(), key=lambda kv: (-mats[kv[0]]["area"], kv[0])):
+            names = cloth_palette(mats[name]["tex"], colour)
+            if names:
+                by_material[name] = (slot, names)
+                by_texture.setdefault(mats[name]["tex"], (slot, names))
+        got, used = 0, set()
+        for i, name in enumerate(m.material_names):
+            tex = pp.material_info(f, m, i).get("_a0")
+            o = f.u64(m.off + 0x38) + i * bfres.MATERIAL_SIZE
+            ns, nt = f.data[o + MAT_SAMPLERS], f.data[o + MAT_TEXTURES]
+            slot, names = by_material.get(name) or by_texture.get(tex) or (None, None)
+            if names is None or not (ns == nt >= 2):
+                continue
+            # (footwear that draws a part's texture was left out for one build: child Link's boots are his leather material itself,
+            # they changed with the belt, and what was left out was the trim on them, Mt_Fur_Boots, which then did not follow: snaildev)
+            if name in haired or name in HAIR_NAMES[1:] or (name == HAIR_NAMES[0] and facts[number][0]):
+                continue                    # what the hair's loop asks for by name has the hair's palette or none
+            if f.read_dict(f.u64(o + 0x38))[0][0] != "_a0":
+                continue
+            new = add_textures(new, name, names + [names[-1]] * (CLOTH_LENGTHS[slot] - len(names)))    # (its length says which colour's it is)
+            got += 1
+            used.add(slot)
+        cloth_materials += got
+        cloth_models += bool(got)
+        colours_of[(number, age)] = len(used)
         if new is data:
             continue
         key = rel[:-3]
         B.write(MOD, rel, nxpack.zs_compress_like(new, raw), len(new), B.SIZES, size=entry(key) + (len(new) - len(data)) + 0x200)
         models += 1
+        hair_models += bool(haired)
         model_bytes += len(nxpack.zs_compress_like(new, raw)) if False else os.path.getsize(os.path.join(B.BUILD, MOD, "romfs", *rel.split("/")))
     json.dump(index, open(index_path, "w", encoding="utf-8"))
     textures = sorted({n for names in made.values() if names for n in names})        # (a unified name has the same nine)
     tex_bytes = sum(os.path.getsize(os.path.join(B.BUILD, MOD, "romfs", "Tex", n + ".bntx.zs")) for n in textures)
     assert models and materials and textures
-    return models, materials, len(textures), model_bytes, tex_bytes, skipped
+    cloth_textures = sorted({n for names in cloth_made.values() if names for n in names})
+    assert not set(cloth_textures) & set(textures)
+    # what was decided, for reading: a line a model file, then a line a recoloured texture
+    with open(os.path.join(BUILD_CUSTOM, "cloth-plan.txt"), "w", encoding="utf-8") as fh:
+        for (number, age), main in sorted(mains.items()):
+            mats = clothes.get((number, age), {})
+            area = sum(r["area"] for r in mats.values()) or 1.0
+            said = "-" if not main else "neutral" if main[0] != "hue" else "hue %.3f" % main[1]
+            if PARTS:
+                fh.write("%3d %-5s main %-10s %s\n" % (number, age, said, " | ".join(
+                    "%s: %s %.0f%% [%s]" % ("-" if slot is None else slot + 1, "grey" if colour[0] != "hue" else "hue %.3f" % colour[1], 100 * share,
+                                            ", ".join(n[3:] for n in names)) for slot, share, colour, names in plans[(number, age)])))
+            else:
+                fh.write("%3d %-5s %-12s %s\n" % (number, age, said, ", ".join("%s %.0f%%" % (n[3:], 100 * r["area"] / area)
+                                                                              for n, r in sorted(mats.items(), key=lambda kv: -kv[1]["area"])[:6])))
+        fh.write("\n" + "\n".join(sorted(cloth_stats["plan"])) + "\n")
+    cloth = dict(models=cloth_models, materials=cloth_materials, textures=len(cloth_textures), made=cloth_stats["encoded"],
+                 bytes=sum(os.path.getsize(os.path.join(B.BUILD, MOD, "romfs", "Tex", n + ".bntx.zs")) for n in cloth_textures),
+                 sources=len({k[0] for k, names in cloth_made.items() if names}),
+                 hue=sum(1 for v in mains.values() if v and v[0] == "hue"), neutral=sum(1 for v in mains.values() if v and v[0] != "hue"),
+                 none=sum(1 for v in mains.values() if not v),
+                 two=sum(1 for v in colours_of.values() if v == 2), three=sum(1 for v in colours_of.values() if v == 3))
+    assert not CLOTHES_ON or (cloth["models"] and cloth["textures"])
+    assert CLOTHES_ON or hair_models == models
+    return hair_models, materials, len(textures), model_bytes, tex_bytes, skipped, dict(cloth, files=models)
 
 
 def model_facts():
@@ -1987,8 +2549,10 @@ def colour_data(facts):
     struct.pack_into("<IIIIfI", d, 0, gamedata.murmur3_32(FLAG), gamedata.murmur3_32(option_flag(keys.index("Hair"))),
                      gamedata.murmur3_32(option_flag(keys.index("Eyes"))), gamedata.murmur3_32(build.CHARACTER_FLAG), 1.0 / 255.0,
                      gamedata.murmur3_32(option_flag(keys.index("Gear"))))
+    struct.pack_into("<3I", d, D_CLOTHES, *(gamedata.murmur3_32(x) for x in CLOTHES_FLAGS))     # (GameData has the Ints of the options that are built)
     struct.pack_into("<II%dI" % len(OPTIONS), d, d_keep, gamedata.murmur3_32(KEEP_OWNER), KEEP_BASE,
                      *(gamedata.murmur3_32(option_flag(f)) for f in range(len(OPTIONS))))
+    assert "Clothes" in keys and all(option_flag(keys.index(k)) == x for k, x in zip(CLOTH_KEYS, CLOTHES_FLAGS) if k in keys)
     assert OPTIONS[keys.index("Gear")][2] == ["Shown", "Hidden"]
     assert len(OPTIONS) * 4 <= 32 and all(len(values) <= 16 for _k, _l, values in OPTIONS) and n <= KEEP_COUNT
     for i, s in enumerate(PARAM_NAMES):
@@ -1999,13 +2563,16 @@ def colour_data(facts):
     for i, name in enumerate(hair):
         c0, c1 = HAIR_COLOURS[name]
         d[D_HAIRS + 6 * i:D_HAIRS + 6 * i + 6] = bytes(byte(x) for x in c0 + c1)
+        brow = brow_colour(HAIR_TEXTURE[name])
+        d[D_BROWS + 6 * i:D_BROWS + 6 * i + 6] = bytes(byte(x) for x in brow + brow)
     for i, name in enumerate(eyes):
         d[D_EYES + 3 * i:D_EYES + 3 * i + 3] = bytes(byte(x) for x in EYE_COLOURS[name])
     for number, (is_hair, _others, _iris, hue) in enumerate(facts):
         if is_hair:
             d[D_MASK + number // 8] |= 1 << (number % 8)
         d[D_HUE + number] = iris_shift(hue) & 255
-    assert D_MASK + 16 == D_HUE and D_EYES + 3 * len(eyes) <= D_MASK and D_HAIRS + 6 * len(hair) <= D_EYES
+    assert D_MASK + 16 == D_HUE and D_EYES + 3 * len(eyes) <= D_MASK and D_BROWS + 6 * len(hair) <= D_EYES
+    assert HAIR_NAMES[-1] == "Mt_Eyebrow" and list(HAIR_TEXTURE) == hair         # (cz_actor: the last name's colours are the eyebrows' table's)
     return bytes(d)
 
 
@@ -2206,7 +2773,7 @@ CZ_PUT = """
 # loading) or is the one that is there.
 CZ_TEX = """
     cz_tex:
-        stp x29, x30, [sp, #-0x30]!
+        stp x29, x30, [sp, #-0x20]!
         str x0, [sp, #0x10]
         stp w1, w2, [sp, #0x18]
         mov x0, x25
@@ -2225,39 +2792,105 @@ CZ_TEX = """
     ct_ptrs:
         ldr x0, [x8, x1, lsl #3]
     ct_obj:
+        ldp w1, w2, [sp, #0x18]
+        bl {cz_texo}
+    ct_out:
+        ldp x29, x30, [sp], #0x20
+        ret
+"""
+# x0 = a material object, w1 = the colour (0 = the model's own), w2 as cz_actor's w1: what
+# cz_tex does, for the material itself (the clothes' loop has no names).
+CZ_TEXO = """
+    cz_texo:
+        stp x29, x30, [sp, #-0x20]!
         ldr x9, [x0]
         ldrb w10, [x9, #{mat_samplers:#x}]
         ldrb w11, [x9, #{mat_textures:#x}]
         cmp w11, w10
-        b.ls ct_out
-        ldp w3, w4, [sp, #0x18]
+        b.ls co_out
         mov w5, wzr
-        cbz w3, ct_have
-        add w5, w3, w10
+        cbz w1, co_have
+        add w5, w1, w10
         sub w5, w5, #1
         cmp w5, w11
         csel w5, wzr, w5, hs
-    ct_have:
-        cbnz w5, ct_go
-        cbz w4, ct_out
-    ct_go:
+    co_have:
+        cbnz w5, co_go
+        cbz w2, co_out
+    co_go:
         ldr x15, [x9, #{mat_views:#x}]
         ldr x16, [x9, #{mat_slots:#x}]
         ldr x14, [x0, #{obj_views:#x}]
-        cbz x15, ct_out
-        cbz x16, ct_out
-        cbz x14, ct_out
+        cbz x15, co_out
+        cbz x16, co_out
+        cbz x14, co_out
         ldr x12, [x15, w5, uxtw #3]
-        cbz x12, ct_out
+        cbz x12, co_out
         ldr x13, [x14]
         cmp x13, x12
-        b.eq ct_out
+        b.eq co_out
         ldr x13, [x16, w5, uxtw #3]
-        stp x12, x13, [sp, #0x20]
+        stp x12, x13, [sp, #0x10]
         mov w1, wzr
-        add x2, sp, #0x20
+        add x2, sp, #0x10
         bl #{set_texture:#x}
-    ct_out:
+    co_out:
+        ldp x29, x30, [sp], #0x20
+        ret
+"""
+# x25 = the model unit, x1 = the three clothing colours (words; 0 = the model's own), w2 as
+# cz_actor's w1: every material of the unit that has a clothing palette gets its colour's
+# entry. Which of the three a palette is for is its length: as many textures behind the
+# material's samplers' own as there are clothing colours (the first colour's), one more
+# (the second's) or three more (the third's); two more is the hair's palette, which is
+# left to the hair's loop. The materials are counted and found the way the game's own loop
+# over a model's materials does it (0x80232e2c: the unit's virtual +0xc8, then by number).
+CZ_CLOTH = """
+    cz_cloth:
+        stp x29, x30, [sp, #-0x30]!
+        stp x19, x20, [sp, #0x10]
+        stp x21, x22, [sp, #0x20]
+        mov x19, x1
+        mov w20, w2
+        mov x0, x25
+        ldr x8, [x25]
+        ldr x8, [x8, #0xc8]
+        blr x8
+        mov w21, w0
+        mov w22, wzr
+    cl_next:
+        cmp w22, w21
+        b.hs cl_out
+        ldr x8, [x25, #0x110]
+        cbnz x8, cl_ptrs
+        ldr x8, [x25, #0x108]
+        add x0, x8, x22, lsl #7
+        b cl_obj
+    cl_ptrs:
+        ldr x0, [x8, x22, lsl #3]
+    cl_obj:
+        add w22, w22, #1
+        cbz x0, cl_next
+        ldr x9, [x0]
+        cbz x9, cl_next
+        ldrb w10, [x9, #{mat_samplers:#x}]
+        ldrb w11, [x9, #{mat_textures:#x}]
+        sub w11, w11, w10
+        subs w11, w11, #{cloths}
+        b.lo cl_next
+        cmp w11, #3
+        b.hi cl_next
+        cmp w11, #2
+        b.eq cl_next
+        cset w12, hi
+        sub w11, w11, w12
+        ldr w1, [x19, w11, uxtw #2]
+        mov w2, w20
+        bl {cz_texo}
+        b cl_next
+    cl_out:
+        ldp x21, x22, [sp, #0x20]
+        ldp x19, x20, [sp, #0x10]
         ldp x29, x30, [sp], #0x30
         ret
 """
@@ -2267,7 +2900,7 @@ CZ_TEX = """
 # just made has them; a character nobody customized is never written to).
 CZ_ACTOR = """
     cz_actor:
-        stp x29, x30, [sp, #-0x90]!
+        stp x29, x30, [sp, #-0xa0]!
         str w1, [sp, #0x78]
         stp x19, x20, [sp, #0x10]
         stp x21, x22, [sp, #0x20]
@@ -2301,6 +2934,18 @@ CZ_ACTOR = """
         ldr w14, [x26, #12]
         bl {cz_int}
         mov w22, w0
+        mov w27, wzr
+    ca_cloth:
+        add x8, x26, #{d_clothes:#x}
+        ldr w14, [x8, w27, uxtw #2]
+        bl {cz_int}
+        cmp w0, #{cloths}
+        csel w0, w0, wzr, ls
+        add x8, sp, #0x90
+        str w0, [x8, w27, uxtw #2]
+        add w27, w27, #1
+        cmp w27, #3
+        b.lo ca_cloth
         cmp w20, #{hairs}
         csel w20, w20, wzr, ls
         cmp w21, #{eyes}
@@ -2319,6 +2964,16 @@ CZ_ACTOR = """
         cbz x8, ca_unit
         ldr x25, [x8]
         cbz x25, ca_unit
+        add x1, sp, #0x90
+        ldr w2, [sp, #0x78]
+        ldp w8, w9, [sp, #0x90]
+        ldr w10, [sp, #0x98]
+        orr w8, w8, w9
+        orr w8, w8, w10
+        orr w8, w8, w2
+        cbz w8, ca_hairs
+        bl {cz_cloth}
+    ca_hairs:
         ldr w8, [sp, #0x78]
         orr w8, w8, w20
         cbz w8, ca_eyes
@@ -2341,6 +2996,10 @@ CZ_ACTOR = """
         lsl w8, w8, #1
         add w8, w8, w28
         add w8, w8, w28, lsl #1
+        cmp x27, #{brow}
+        b.ne ca_hair_tab
+        add w8, w8, #{brows}
+    ca_hair_tab:
         add x0, x26, #{d_hairs:#x}
         add x0, x0, w8, uxtw
         add x1, sp, #0x60
@@ -2403,7 +3062,7 @@ CZ_ACTOR = """
         ldp x23, x24, [sp, #0x30]
         ldp x21, x22, [sp, #0x20]
         ldp x19, x20, [sp, #0x10]
-        ldp x29, x30, [sp], #0x90
+        ldp x29, x30, [sp], #0xa0
         ret
 """
 # x0 = an actor, w1 as cz_actor's: the equipment's "shown" bits by the Equipment option.
@@ -2541,7 +3200,8 @@ CZ_FRAME = """
 """
 # (name, text, which of our three places): in the order they need each other
 CZ_BLOCKS = (("cz_rec", CZ_REC, "more"), ("cz_int", CZ_INT, "more"), ("cz_keep", CZ_KEEP, "keep"), ("cz_rgb", CZ_RGB, "code"),
-             ("cz_put", CZ_PUT, "code"), ("cz_tex", CZ_TEX, "tex"), ("cz_gear", CZ_GEAR, "more"), ("cz_actor", CZ_ACTOR, "code"),
+             ("cz_put", CZ_PUT, "code"), ("cz_texo", CZ_TEXO, "tex"), ("cz_tex", CZ_TEX, "tex"), ("cz_cloth", CZ_CLOTH, "keep"),
+             ("cz_gear", CZ_GEAR, "more"), ("cz_actor", CZ_ACTOR, "code"),
              ("cz_head", CZ_HEAD, "more"),
              ("cz_frame", CZ_FRAME, "more"))
 CZ_PLACES = {"code": COLOUR_CODE, "more": COLOUR_MORE, "keep": COLOUR_KEEP, "tex": COLOUR_TEX}
@@ -2661,6 +3321,9 @@ def colour_patch(p, facts):
         "80232e80: cmn      w0, #1", "80232e84: b.eq     #0x80232ea4", "80232e88: ldr      x8, [x19]",
         "80232e8c: add      x3, sp, #8", "80232e90: mov      w2, w0", "80232e94: mov      x0, x19",
         "80232e98: mov      w1, w21", "80232e9c: ldr      x8, [x8, #0x158]", "80232ea0: blr      x8"]
+    assert img.dis(0x80232e2c, 5) == [                  # ... and before it, how many materials the unit has (cz_cloth counts them so)
+        "80232e2c: ldr      x8, [x19]", "80232e30: mov      x0, x19", "80232e34: ldr      x8, [x8, #0xc8]",
+        "80232e38: blr      x8", "80232e3c: cbz      w0, #0x80232eb0"]
     assert img.cstr(0x83dd2ed1) == PARAM_NAMES[0] and img.cstr(0x83d86779) == HAIR_NAMES[0]
     got = build.GAMEDATA_MGR_GOT
     keep = p.cave_ptr
@@ -2673,7 +3336,7 @@ def colour_patch(p, facts):
     p.symbols["cz_data"] = at
     values = dict(got_page=got & ~0xFFF, got_off=got & 0xFFF, type_page=MODEL_TYPE_GOT & ~0xFFF, type_off=MODEL_TYPE_GOT & 0xFFF,
                   data_page=at & ~0xFFF, data_off=at & 0xFFF, hairs=len(HAIR_COLOURS), eyes=len(EYE_COLOURS),
-                  nchar=len(facts), names=len(HAIR_NAMES), d_mask=D_MASK, d_hairs=D_HAIRS, d_names=D_NAMES, d_param=D_PARAM,
+                  nchar=len(facts), names=len(HAIR_NAMES), brow=len(HAIR_NAMES) - 1, brows=D_BROWS - D_HAIRS, d_mask=D_MASK, d_hairs=D_HAIRS, d_names=D_NAMES, d_param=D_PARAM,
                   d_param2=D_PARAM + 32, d_eyes=D_EYES, d_hue=D_HUE, d_eye=D_EYE, head=HEAD_ROUTINE,
                   menu_page=MENU_GLOBAL & ~0xFFF, menu_off=MENU_GLOBAL & 0xFFF,
                   slot_id=build.MENU_SLOT + 0x18, slot_link=build.MENU_SLOT + 0x10,
@@ -2682,9 +3345,11 @@ def colour_patch(p, facts):
                   gear_id=GEAR_FIRST + 0x10, gear_link=GEAR_FIRST + 8,
                   shown=build.ACTOR_SHOWN, shown_bit=build.ACTOR_SHOWN_BIT, keep=KEEP_COUNT, options=len(OPTIONS),
                   mat_samplers=MAT_SAMPLERS, mat_textures=MAT_TEXTURES, mat_views=MAT_VIEWS, mat_slots=MAT_SLOTS,
-                  obj_views=OBJ_VIEWS, set_texture=SET_TEXTURE,
+                  obj_views=OBJ_VIEWS, set_texture=SET_TEXTURE, cloths=len(CLOTH_TEXTURE), d_clothes=D_CLOTHES,
                   d_keep=len(data) - 8 - 4 * len(OPTIONS), d_keep4=len(data) - 4 - 4 * len(OPTIONS), d_opts=len(data) - 4 * len(OPTIONS))
     assert GEAR_HANDLES >> GEAR_COUNT == 0 and GEAR_FIRST + 0x18 * 8 == 0xE0     # the game's thirteen slots are handles 8 to 20
+    n_cloth = len(CLOTH_TEXTURE)            # what cz_cloth reads from a palette's length
+    assert CLOTH_LENGTHS == [n_cloth, n_cloth + 1, n_cloth + 3] and len(HAIR_TEXTURE) == n_cloth + 2 and len(CLOTHES_FLAGS) == 3
     ends = {where: lo for where, (lo, _hi) in CZ_PLACES.items()}
     for name, text, where in CZ_BLOCKS:
         p.cave_ptr = ends[where]
@@ -2733,11 +3398,14 @@ def check_colour(p, facts):
     keys = [k for k, _l, _v in OPTIONS]
     hashes = {k: gamedata.murmur3_32(v) for k, v in (
         ("flag", FLAG), ("hair", option_flag(keys.index("Hair"))), ("eyes", option_flag(keys.index("Eyes"))),
-        ("char", build.CHARACTER_FLAG), ("gear", option_flag(keys.index("Gear"))))}
+        ("char", build.CHARACTER_FLAG), ("gear", option_flag(keys.index("Gear"))), ("clothes", CLOTHES_FLAGS[0]), ("clothes2", CLOTHES_FLAGS[1]),
+        ("clothes3", CLOTHES_FLAGS[2]))}
     assert len(set(hashes.values())) == len(hashes)
+    NCLOTH = len(CLOTH_TEXTURE)
+    CLOTHED = ("Mt_Cloth", "Mt_Metal", "Mt_Teeth", "Mt_Skin")       # the materials that have a clothing palette where a scene has one
     owner_hash, option_hashes = gamedata.murmur3_32(KEEP_OWNER), [gamedata.murmur3_32(option_flag(f)) for f in range(len(OPTIONS))]
     HEAP, STACK, RET, STUB = 0x20000000, 0x30000000, 0x40000000, 0x50000000
-    S_D0, S_E0, S_158, S_TYPE = STUB, STUB + 0x10, STUB + 0x20, STUB + 0x30
+    S_D0, S_E0, S_158, S_TYPE, S_C8 = STUB, STUB + 0x10, STUB + 0x20, STUB + 0x30, STUB + 0x40
     for addr, reg, base in COUNT_PATCHES:
         ins = list(p.img.cs.disasm(dict(p.patches)[addr], addr))
         assert len(ins) == 1 and (ins[0].mnemonic, ins[0].op_str) == ("ldrb", "%s, [%s, #0xa3]" % (reg, base)), (hex(addr), ins[0].op_str)
@@ -2747,12 +3415,14 @@ def check_colour(p, facts):
     f32 = lambda x: struct.unpack("<f", struct.pack("<f", x))[0]        # noqa: E731
     runs = [0]
 
-    def scene(values, actors, menu=None, pouch=None, mgr=True, flags=True, slot=None, ints=None, palette=0, odd=None):
+    def scene(values, actors, menu=None, pouch=None, mgr=True, flags=True, slot=None, ints=None, palette=0, odd=None, cloth=0):
         """actors: [{"units": [{material: its value block} or None], "gear": {slot: {...}}}];
         menu / pouch: which of them is the menu character / the pouch's target (None: nobody);
         slot: what is odd about the menu's slot; ints: more GameData Ints {hash: value};
         palette: how many textures the hair material has behind its samplers' own; odd: what
-        is wrong with the hair's textures ("swapped": its first is a palette entry already).
+        is wrong with the hair's textures ("swapped": its first is a palette entry already);
+        cloth: how many the CLOTHED materials have (a clothing palette if as many as there
+        are clothing colours).
         -> the emulator and where things are."""
         mu = unicorn.Uc(unicorn.UC_ARCH_ARM64, unicorn.UC_MODE_ARM)
         mu.ctl_set_cpu_model(A.UC_CPU_ARM64_MAX)            # ldset / ldclr are ARMv8.1
@@ -2802,7 +3472,7 @@ def check_colour(p, facts):
         put(MODEL_TYPE_GOT, "<Q", S_TYPE)
         mvt, uvt = alloc(0x100), alloc(0x200)
         put(mvt + 0xf8, "<Q", S_TYPE)
-        for off, stub in ((0xd0, S_D0), (0xe0, S_E0), (0x158, S_158)):
+        for off, stub in ((0xd0, S_D0), (0xe0, S_E0), (0x158, S_158), (0xc8, S_C8)):
             put(uvt + off, "<Q", stub)
         model, made = {}, []        # unit address -> {"names", "inst": {(mat, par): address}, "own": {(mat, par): bytes}}
         for spec in actors:
@@ -2848,7 +3518,7 @@ def check_colour(p, facts):
                     put(refl + 0x20, "<Q", parr)
                     put(res + 0x58, "<Q", own)
                     # its textures: seven samplers; the file's views and slots as bound; the living material's two lists
-                    extra = palette if name in PALETTE_MATERIALS else 0
+                    extra = palette if name in PALETTE_MATERIALS else cloth if name in CLOTHED else 0
                     nt = 7 + extra
                     views, slots, iviews, islots = alloc(8 * nt), alloc(8 * nt), alloc(8 * nt), alloc(8 * nt)
                     vs = [HEAP + 0x200000 + 0x100 * k_ for k_ in rnd.sample(range(1, 4000), nt)]
@@ -2937,6 +3607,9 @@ def check_colour(p, facts):
                 uc.mem_write(model[x(0)]["inst"][(mat, par)], v)
                 log.append(("set", x(0), mat, par, v))
                 r = 0
+            elif address == S_C8:           # (unit) -> how many materials it has
+                r = len(model[x(0)]["names"])
+                log.append(("count", x(0), r))
             elif address == HEAD_ROUTINE:
                 log.append(("head gear update", x(0)))
                 r = 0
@@ -2956,7 +3629,7 @@ def check_colour(p, facts):
             for reg in range(0, 8):
                 uc.reg_write(A.UC_ARM64_REG_V0 + reg, rnd.getrandbits(128))
             uc.reg_write(A.UC_ARM64_REG_PC, uc.reg_read(A.UC_ARM64_REG_X30))
-        for a in (S_D0, S_E0, S_158, HEAD_ROUTINE, SET_TEXTURE):
+        for a in (S_D0, S_E0, S_158, S_C8, HEAD_ROUTINE, SET_TEXTURE):
             mu.mem_write(a, struct.pack("<I", 0xD65F03C0))      # ret, never reached: the hook leaves first
             mu.hook_add(unicorn.UC_HOOK_CODE, stub, begin=a, end=a)
         return mu, dict(actors=made, model=model, log=log, alloc=alloc, put=put, mem=lambda a, k: bytes(mu.mem_read(a, k)),
@@ -3000,6 +3673,10 @@ def check_colour(p, facts):
         char = char if 0 <= char < n else n
         return hair, eyes, char
 
+    def cloth_of(values):
+        """the three clothing colours as the code takes them (a number that is no colour is the model's own)"""
+        return [c if 0 <= c <= NCLOTH else 0 for c in (values.get(k, 0) for k in ("clothes", "clothes2", "clothes3"))]
+
     def expect(made, values, model, own_back):
         """What must be set on an actor's model, in order: [(unit, material index, parameter
         index, bytes)]. own_back: an option at 0 sets the model's own values (else nothing)."""
@@ -3020,7 +3697,8 @@ def check_colour(p, facts):
                         if hair == 0:
                             out.append((u,) + key + (own,))
                         else:
-                            rgb = list(HAIR_COLOURS.values())[hair - 1][c]
+                            rgb = brow_colour(list(HAIR_TEXTURE.values())[hair - 1]) if name == HAIR_NAMES[-1] else \
+                                list(HAIR_COLOURS.values())[hair - 1][c]
                             out.append((u,) + key + (struct.pack("<3f", *(f32(byte(x)) * f32(1 / 255.0) for x in rgb)) + own[12:],))
             if (eyes or own_back) and EYE_NAME in names:
                 key = (names.index(EYE_NAME), NAMED[PARAM_NAMES[2]])
@@ -3071,22 +3749,34 @@ def check_colour(p, facts):
         has a palette: the colour's entry; or the file's own where there is no entry for the
         colour and things are put back. And the engine's routine was called for exactly that."""
         hair, _eyes, char = options(values)
+        clothes = cloth_of(values)
         is_hair = char < n and facts[char][0]
         calls = [e[1:] for e in s["log"] if e[0] == "texture"]
         asked = []
         for u in made["units"]:
             info = s["model"][u]
+            wants = {}
+            for hairs in (False, True):         # a unit's clothes first (its materials by number), then its hair
+                for i, tx in info["tex"].items():
+                    name = info["names"][i]
+                    if (name in PALETTE_MATERIALS) != hairs:
+                        continue
+                    want = list(tx["first"])
+                    if hairs:
+                        on, colour = tx["extra"] and (name != HAIR_NAMES[0] or is_hair) and (hair or own_back), hair
+                    else:                       # a clothing palette: by its length the first, second or third colour's
+                        slot = {NCLOTH: 0, NCLOTH + 1: 1, NCLOTH + 3: 2}.get(tx["extra"])
+                        on, colour = slot is not None and (clothes[slot] or own_back), 0 if slot is None else clothes[slot]
+                    if on:
+                        to = 6 + colour if 0 < colour <= tx["extra"] else 0
+                        if (to or own_back) and tx["vs"][to] and want[0][0] != tx["vs"][to]:
+                            want[0] = (tx["vs"][to], tx["ss"][to])
+                            asked.append((tx["obj"], 0) + want[0])
+                    wants[i] = want
             for i, tx in info["tex"].items():
                 k_ = len(tx["vs"])
                 now = list(zip(struct.unpack("<%dQ" % k_, s["mem"](tx["iviews"], 8 * k_)), struct.unpack("<%dQ" % k_, s["mem"](tx["islots"], 8 * k_))))
-                want = list(tx["first"])
-                name = info["names"][i]
-                if tx["extra"] and (name != HAIR_NAMES[0] or is_hair) and (hair or own_back):
-                    to = 6 + hair if 0 < hair <= tx["extra"] else 0
-                    if (to or own_back) and tx["vs"][to] and want[0][0] != tx["vs"][to]:
-                        want[0] = (tx["vs"][to], tx["ss"][to])
-                        asked.append((tx["obj"], 0) + want[0])
-                assert now == want, (name, hair, own_back, odd, tx["extra"])
+                assert now == wants[i], (info["names"][i], hair, clothes, own_back, odd, tx["extra"])
         mine = {tx["obj"] for u in made["units"] for tx in s["model"][u]["tex"].values()}
         assert [c for c in calls if c[0] in mine] == asked, (hair, own_back, odd)
 
@@ -3120,11 +3810,14 @@ def check_colour(p, facts):
             for hair in list(range(len(HAIR_COLOURS) + 1)) + [len(HAIR_COLOURS) + 1, -3]:
                 for eyes in (0, 1 + hair % len(EYE_COLOURS), len(EYE_COLOURS), len(EYE_COLOURS) + 1):
                     count += 1
-                    values = {"flag": 1, "hair": hair, "eyes": eyes, "char": char, "gear": (0, 1, 1, 0, 2, -1)[count % 6]}
+                    values = {"flag": 1, "hair": hair, "eyes": eyes, "char": char, "gear": (0, 1, 1, 0, 2, -1)[count % 6],
+                              "clothes": (0, 2, NCLOTH, 0, NCLOTH + 1, 1, -1, 0, 5)[count % 9],
+                              "clothes2": (0, 0, 3, 6, 0, NCLOTH, 9)[count % 7], "clothes3": (0, 4, 0, 0, 1)[count % 5]}
                     back = count % 2                    # both ways of "Default", each half the time
                     pal = (0, 9, 3, 9, 1)[count % 5]
                     odd = (None, None, "swapped", None, "swapped", None, "not bound")[count % 7]
-                    mu, s = scene(values, [{"units": units, "gear": gears[count % len(gears)]}], palette=pal, odd=odd)
+                    mu, s = scene(values, [{"units": units, "gear": gears[count % len(gears)]}], palette=pal, odd=odd,
+                                  cloth=(NCLOTH, 0, NCLOTH + 1, 5, NCLOTH + 3, 9, NCLOTH, NCLOTH + 4, NCLOTH + 1, 6, NCLOTH + 3)[count % 11])
                     made = s["actors"][0]
                     call(mu, entry, made["actor"], x1=back | (rnd.getrandbits(31) << 33))
                     want = expect(made, values, s["model"], bool(back))
@@ -3132,7 +3825,11 @@ def check_colour(p, facts):
                     check_model(s, made, want)
                     check_gear(s, made, values, bool(back))
                     check_textures(s, made, values, bool(back), odd)
-                    if not back and not any(options(values)[:2]):       # nobody customized: not one question asked of the model
+                    if any(cloth_of(values)) or back:   # the unit's materials are counted once a unit, and only then
+                        assert [e[1] for e in s["log"] if e[0] == "count"] == made["units"]
+                    else:
+                        assert not [e for e in s["log"] if e[0] == "count"]
+                    if not back and not any(options(values)[:2]) and not any(cloth_of(values)):   # nobody customized: not one question asked of the model
                         assert not s["log"], s["log"][:3]
     # the eyes of every character, every colour: x is the colour's for the common iris less half the texture's distance from it
     for char in range(n):
@@ -3183,8 +3880,11 @@ def check_colour(p, facts):
             assert not s["log"], what
             check_gear(s, made, values if what in ("no model", "other type", "no list") else {}, False)
     # cz_head: the head gear update first, with what it was given; then the options of that part's actor, nothing put back
-    for values in ({"hair": 4, "eyes": 5, "char": 0, "gear": 1}, {"char": 0}, {"gear": 1}, {"eyes": 7, "char": 3}):
-        mu, s = scene(values, [{"units": shapes[0], "gear": gears[2]}])
+    for values in ({"hair": 4, "eyes": 5, "char": 0, "gear": 1}, {"char": 0}, {"gear": 1}, {"eyes": 7, "char": 3},
+                   {"clothes": 3, "char": 0}, {"clothes": NCLOTH, "hair": 9, "char": 0, "gear": 1}, {"clothes2": 5, "char": 0},
+                   {"clothes3": 1, "clothes": 2, "char": 0}):
+        mu, s = scene(values, [{"units": shapes[0], "gear": gears[2]}], palette=9,
+                      cloth=NCLOTH + 3 if "clothes3" in values else NCLOTH + 1 if "clothes2" in values else NCLOTH)
         made = s["actors"][0]
         part = s["alloc"](0x200)
         s["put"](part + 0x110, "<Q", made["actor"])
@@ -3194,6 +3894,9 @@ def check_colour(p, facts):
         assert close(sets_of(s, made), want)
         check_model(s, made, want)
         check_gear(s, made, values, False)
+        check_textures(s, made, values, False)
+        assert bool([e for e in s["log"] if e[0] == "texture"]) == bool(
+            values.get("clothes3") or values.get("clothes2") or ("clothes3" not in values and values.get("clothes")) or values.get("hair"))
         if values == {"char": 0}:
             assert len(s["log"]) == 1               # nobody customized: the head gear update and nothing else
     mu, s = scene({"hair": 2}, [{"units": shapes[0]}])
@@ -3208,9 +3911,11 @@ def check_colour(p, facts):
     for flag in (0, 1, 2, 41):
         for slot in (None, {}, {"id": -1}, {"link_id": 5}, {"actor": False}, {"state": 7}, {"state": 11}, {"state": 12}, {"state": 6}):
             for field in (None, 4, 9, 3):
-                values = {"flag": flag, "hair": (2, 0)[(flag + (field or 0)) % 2], "eyes": 3, "char": 0, "gear": (flag + (field or 0)) % 2}
+                values = {"flag": flag, "hair": (2, 0)[(flag + (field or 0)) % 2], "eyes": 3, "char": 0, "gear": (flag + (field or 0)) % 2,
+                          "clothes": (0, 4, 0, NCLOTH)[(flag + (field or 0)) % 4], "clothes3": (0, 0, 2)[(flag + (field or 0)) % 3]}
                 actors = [dict(two[0], state=(slot or {}).get("state", 4)), dict(two[1], state=field or 4)]
-                mu, s = scene(values, actors, menu=None if slot is None else 0, pouch=None if field is None else 1, slot=slot)
+                mu, s = scene(values, actors, menu=None if slot is None else 0, pouch=None if field is None else 1, slot=slot,
+                              palette=9, cloth=(NCLOTH, NCLOTH + 3)[flag % 2])
                 call(mu, p.symbols["cz_frame"], rnd.getrandbits(64), frame=frame)
                 live = [slot is not None and slot.get("id", 77) == slot.get("link_id", 77) != -1 and
                         slot.get("actor", True) and not 7 <= slot.get("state", 4) <= 11,
@@ -3220,6 +3925,7 @@ def check_colour(p, facts):
                     assert close(sets_of(s, made), want), (flag, slot, field)
                     check_model(s, made, want)
                     check_gear(s, made, values if on else {}, on and flag != 0)
+                    check_textures(s, made, values if on else {}, on and flag != 0)
                 assert not [e for e in s["log"] if e[0] == "head gear update"]
     mu, s = scene({"flag": 1}, two, menu=0, pouch=1, mgr=False)
     call(mu, p.symbols["cz_frame"], 0, frame=frame)
@@ -3228,10 +3934,10 @@ def check_colour(p, facts):
     # cz_keep: the six Ints are the owner's; another stored number -> his are loaded and he is the owner
     # (the samples below are written for all six options, in OPTIONS' full order; a build that leaves some out,
     # UNFINISHED, checks with the values of the ones it has: main session, 2026-11-14)
-    all_keys = ("Hair", "Eyes", "Clothes", "Outfit", "Gear", "Accessory")
+    all_keys = ("Hair", "Eyes", "Clothes", "Outfit", "Gear", "Accessory", "Clothes2", "Clothes3")
 
     def shown(six):
-        return [six[all_keys.index(k)] for k, _l, _v in OPTIONS]
+        return [(list(six) + [0, 0])[all_keys.index(k)] for k, _l, _v in OPTIONS]
 
     def pack(six):
         return sum((v & 15) << (4 * k) for k, v in enumerate(six))
@@ -3366,9 +4072,18 @@ def build_folder():
                ("code", COLOUR_CODE_NODE), ("more", COLOUR_MORE_NODE), ("keep", COLOUR_KEEP_NODE), ("tex", COLOUR_TEX_NODE))),
            colour_tables, COLOUR_DATA_NODE, HEAD_CALL, FRAME_SITE),
         "  hair by textures: %d model files with a palette on %d hair materials, %d recoloured textures (%d colours each of %d);"
-        " %.0f MB of models, %.0f MB of textures; left out (no texture file, or a format not recoloured): %s"
-        % (palettes[0], palettes[1], palettes[2], len(HAIR_TEXTURE), palettes[2] // len(HAIR_TEXTURE), palettes[3] / 1e6, palettes[4] / 1e6,
+        " %.0f MB of models (%d files, the ones with only a clothing palette too), %.0f MB of textures;"
+        " left out (no texture file, or a format not recoloured): %s"
+        % (palettes[0], palettes[1], palettes[2], len(HAIR_TEXTURE), palettes[2] // len(HAIR_TEXTURE), palettes[3] / 1e6, palettes[6]["files"], palettes[4] / 1e6,
            ", ".join(sorted({"%s (%s)" % (tex, mat) for _n, _a, mat, tex in palettes[5]})) or "none"),
+        "  clothing by textures: %s" % ("not built (the option is not: --clothes)" if not CLOTHES_ON else
+                                        "%(models)d model files with a palette on %(materials)d materials, %(textures)d recoloured textures"
+                                        " (%(n)d colours each of %(sources)d textures' kinds; %(made)d made in this run), %(mb).0f MB;"
+                                        " the main colour is a hue for %(hue)d model files, the greys for %(neutral)d, none for %(none)d;"
+                                        " %(how)s (build-custom\\cloth-plan.txt)" % dict(
+                                            palettes[6], n=len(CLOTH_TEXTURE), mb=palettes[6]["bytes"] / 1e6,
+                                            how="a colour a part of the clothes: two colours for %d model files, three for %d" % (
+                                                palettes[6]["two"], palettes[6]["three"]) if PARTS else "one colour for the clothes")),
         "  sounds: %s" % ", ".join("%s = %s on %s" % (what, key, screen) for what, (screen, key) in SOUNDS.items()),
         "  sound link file: %d bytes changed; GlobalSound's %s" % (slink_bytes, ", ".join(borrowed)),
         "  game data: %d unsaved Ints added to the installed list" % ints,
@@ -3377,10 +4092,47 @@ def build_folder():
     ]
 
 
+def installed_sums():
+    """{folder/file: sha1} of every file of every installed folder but ours: what a build of
+    ours was made over (it reads them, so it is only right over these very files)."""
+    import hashlib
+    out = {}
+    for folder in installed():
+        for d, _dirs, names in os.walk(os.path.join(build.EDEN_LOAD, folder)):
+            for n in names:
+                path = os.path.join(d, n)
+                h = hashlib.sha1()
+                with open(path, "rb") as f:
+                    for chunk in iter(lambda: f.read(1 << 22), b""):
+                        h.update(chunk)
+                out[os.path.relpath(path, build.EDEN_LOAD).replace(os.sep, "/")] = h.hexdigest()
+    return out
+
+
+def source_sums(files=None):
+    """{file: sha1} of the project's scripts this run has loaded (after a build: what the build
+    was made from; another session's work on a script of its own does not count), or of
+    `files` as they are now (a file that is gone has no sum)."""
+    import hashlib
+    if files is None:
+        files = set()
+        for mod in list(sys.modules.values()):
+            path = os.path.abspath(getattr(mod, "__file__", None) or "")
+            if path.endswith(".py") and os.path.dirname(path) in (HERE, os.path.join(ROOT, "tools")):
+                files.add(os.path.relpath(path, ROOT).replace(os.sep, "/"))
+    return {f: hashlib.sha1(open(os.path.join(ROOT, *f.split("/")), "rb").read()).hexdigest()
+            for f in sorted(files) if os.path.exists(os.path.join(ROOT, *f.split("/")))}
+
+
+BUILT_OVER = os.path.join(BUILD_CUSTOM, "built-over.json")
+SWITCHES = ("--split",)         # what changes the build
+
+
 def main():
+    import json
     B = build
-    install, remove = "--install" in sys.argv, "--remove" in sys.argv
-    if (install or remove) and B.emulator_running():
+    install, remove, only = "--install" in sys.argv, "--remove" in sys.argv, "--install-only" in sys.argv
+    if (install or remove or only) and B.emulator_running():
         print("The emulator is running (%s). Close it first: it keeps the mod files open." % ", ".join(B.emulator_running()))
         sys.exit(1)
     if remove:      # for a session whose own install our folder is in the way of (the voices' wants to sort first)
@@ -3395,9 +4147,46 @@ def main():
     # one build at a time, and the record of what is installed (tools\modstate.py, the rules
     # of 2026-11-13): the lock for the whole run, since this build reads the installed folders
     # (another session's install under it would give a mix), and a stamp for our one folder
+    switches = [x for x in SWITCHES if x in sys.argv]
     with modstate.building(SESSION):
-        print("\n".join(build_folder()))
-        if install:
+        # The folder as last built is right for now if the build was made with the same switches, from the same
+        # sources and over the very files that are installed now: then --install copies it (seconds) in place of
+        # building again (minutes: the palettes). --install-only never builds; a plain run always does.
+        why = None
+        if install or only:
+            try:
+                built = json.load(open(BUILT_OVER, encoding="utf-8"))
+            except (OSError, ValueError):
+                built = None
+            if not built or not os.path.isdir(os.path.join(BUILD_CUSTOM, MOD)):
+                why = "there is no finished build in %s" % BUILD_CUSTOM
+            elif built["switches"] != switches:
+                why = "the last build was made with %s, this asks for %s" % (built["switches"] or "no switch", switches or "none")
+            elif built["sources"] != source_sums(list(built["sources"])):
+                now = source_sums(list(built["sources"]))
+                diff = sorted(k for k in built["sources"] if built["sources"][k] != now.get(k))
+                why = "the sources changed since the last build (%s%s)" % (", ".join(diff[:4]), " ..." if len(diff) > 4 else "")
+            else:
+                now = installed_sums()
+                if now != built["sums"]:
+                    diff = sorted(k for k in set(now) | set(built["sums"]) if now.get(k) != built["sums"].get(k))
+                    why = "the last build was made over other files than are installed now (%d differ: %s%s)" % (
+                        len(diff), ", ".join(diff[:4]), " ..." if len(diff) > 4 else "")
+        if only and why:
+            print("Not installed: %s. Run this with --install, which builds over what is there." % why)
+            sys.exit(1)
+        if why or not (install or only):
+            if why:
+                print("Building: %s." % why)
+            try:
+                os.remove(BUILT_OVER)
+            except OSError:
+                pass
+            print("\n".join(build_folder()))
+            json.dump({"switches": switches, "sources": source_sums(), "sums": installed_sums()}, open(BUILT_OVER, "w", encoding="utf-8"))
+        else:
+            print("%s: as last built (nothing it was built from or over has changed)" % MOD)
+        if install or only:
             dst = os.path.join(B.EDEN_LOAD, MOD)
             shutil.rmtree(dst, ignore_errors=True)
             shutil.copytree(os.path.join(BUILD_CUSTOM, MOD), dst)

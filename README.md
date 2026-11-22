@@ -8,15 +8,18 @@ A full character select for *The Legend of Zelda: Ocarina of Time* on Switch 2: 
 
 Not affiliated with or endorsed by Nintendo. This is a mod, not the game: you need your own copy of the game, and the mod does nothing without it. The licence (MIT, see `LICENSE`) applies to the source code in this repository.
 
-**Status:** early test version (v0.2.1). Back up your save before trying it.
+**Status:** early test version (v0.2.2). Back up your save before trying it.
 
 ## Install
 
-1. Download the mod: **[v0.2.1](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.2.1/OoT-Character-Select-v0.2.1.zip)**, 115 characters, 1,023 MB. (Smaller downloads: [v0.2.0](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.2.0/OoT-Character-Select-v0.2.0.zip), 712 MB, is the same without the clothing colours; the older [v0.1.3-lite](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.1.3/OoT-Character-Select-v0.1.3-lite.zip) has 21 characters in 171 MB, without what v0.2.0 added.)
-2. In your emulator's game list, right-click the game and choose "Open Mod Data Location".
-3. Copy the folder `OoT Character Select` from the zip's `mods` folder into it, and start the game.
+1. Download the mod: **[v0.2.2](https://github.com/snaildev99/OoT-Character-Select/releases/download/v0.2.2/OoT-Character-Select-v0.2.2.zip)**, 115 characters, 145 MB. Unzip it.
+2. Dump the game's RomFS: in your emulator's game list, right-click the game, choose "Dump RomFS" and, if it asks, "Full". (Ryujinx: right-click, Extract Data, RomFS, and note the folder you pick.)
+3. Open the zip's `build-from-your-game` folder and run `build-from-your-game.exe`. It finds the dump (or asks you to drag the RomFS folder onto its window), makes the characters' models, colours and the menu from your copy of the game into the zip's `OoT Character Select` folder, and says "Done". It takes a minute or two, once.
+4. In your emulator's game list, right-click the game and choose "Open Mod Data Location". Copy the folder `OoT Character Select` from the zip's `mods` folder into it, and start the game.
 
-It is one mod folder. If you have an older version, delete its folder first, then copy the new one. To remove the mod, delete it. To switch it off without deleting it, use the game's properties, Add-Ons.
+On Linux, Steam Deck or macOS, step 3 is `python3 build-from-your-game/player.py --romfs <the dumped RomFS folder>` (after `python3 -m pip install numpy pyzstd astc-encoder-py texture2ddecoder`). In [Squadala](https://github.com/daurosk/oot-remake-multiplayer), the co-op kit offers the mod at its first start and does all of this itself.
+
+It is one mod folder. If you have an older version, delete its folder first, then copy the new one. To remove the mod, delete it. To switch it off without deleting it, use the game's properties, Add-Ons. The RomFS dump is only needed for step 3; you can delete it afterwards.
 
 What you need:
 
@@ -60,6 +63,7 @@ Planned:
 
 ## Good to know
 
+- **New in v0.2.2:** the same characters and features as v0.2.1, in a much smaller download (145 MB instead of 1,023 MB). The characters' models, their colours and the menu are made on your PC from your own copy of the game by the tool in the zip (install step 3). It takes a minute or two, once.
 - **New in v0.2.1:** clothing colours in Customize. The rows Clothing Color, Clothing Color 2 and Clothing Color 3 each recolour one part of the character's clothes in one of seven colours; on Link they are the tunic and hat, the vest, and the leather with the boots. Every colour is a recoloured copy of the character's own clothing textures, which is why the download grew from 712 MB to 1,023 MB.
 - **New in v0.2.0:** 16 more characters (115 in all, on seven pages), the Customize mode, cloth for nearly every character with the dresses following the legs, and voices for nine characters at both ages. The download is one zip now; there is no lite version of it.
 - **Customize is unfinished.** Hair colour, eye colour, the clothing colours and the equipment switch work. The clothing colours are a first cut that covers the main colours: a script picks up to three parts of each character's clothes by their colour, so what a row changes differs from character to character, about half of the characters have only one part that changes, and a second colour inside one garment (a trim, a pattern) keeps its own. The adult's Goron and Zora tunics are models of their own and are not covered. Outfits and accessories are not in yet. The choices are kept while the game runs but are not written to the save file yet, so they are gone after a restart. Hair and clothing colours are recoloured copies of each character's own textures; a few characters have no hair texture to recolour. While the mod is on, three of the amiibo marker's sounds are used as the mode's menu sounds.
@@ -83,12 +87,18 @@ Planned:
 
 ## Is it safe to install?
 
-The mod is data only. It holds what it adds to the game: the Characters page and its menu tab, the picker with a portrait for each character, the characters set up as playable models with their cloth files, recoloured hair and clothing textures for the Customize mode, voices for some characters, and one code patch (`.ips`) that runs inside the emulated game. Nothing in it runs on your computer: no programs, scripts or installers. If something claiming to be this mod contains anything else, do not use it.
+The zip holds the mod and one tool:
+
+- **`mods/OoT Character Select`**, the mod folder: one code patch (`.ips`) that runs inside the emulated game, the Characters page's menu graph, and the voices for some characters.
+- **`build-from-your-game`**, the tool that makes the rest of the mod from your own copy of the game: the characters set up as playable models with their cloth files, the recoloured hair and clothing textures for Customize, and the menu with the picker's portraits. `recipes.json` and `patches.bin` are the mod's changes to those files (byte patches and colour settings, useless without the game). `player.py`, `delta.py`, `colours.py` and `lib` are the tool's Python source, readable, and the same as in this repository's `gamefiles` and `tools` folders. `build-from-your-game.exe` is that same Python packed into one program with PyInstaller, for Windows players without Python.
+
+The tool reads only the RomFS folder it is given and writes only into the mod folder; it does not go online. It checks every game file it reads and every file it makes against the ones the release was tested with, so a dump of another game version is refused instead of half made. If something claiming to be this mod contains anything else, do not use it.
 
 The mod is downloaded from this repository's [downloads page](https://github.com/snaildev99/OoT-Character-Select/releases). The SHA-256 sum of each zip:
 
 | Package | SHA-256 |
 | --- | --- |
+| `OoT-Character-Select-v0.2.2.zip` (115 characters) | `75cd9a4c71645d1abcf7151fc074df1922af3f9db0b31a3c383eaf7d2497620b` |
 | `OoT-Character-Select-v0.2.1.zip` (115 characters) | `e2944017998b100371a3a697724c36018cae24db3835c40aca19cf2c946b2585` |
 | `OoT-Character-Select-v0.2.0.zip` (115 characters) | `a7d2f04a4ed17dde3c738b55f70564016f91e9da94efc10d8ccd113e53f5135b` |
 | `OoT-Character-Select-v0.1.3-lite.zip` | `ff60cd9bd4f7c5ca1cdbfbb2242fd8fd2dfa08e221e856dd1c2c65d64dd2d5e1` |
@@ -101,14 +111,14 @@ The mod is downloaded from this repository's [downloads page](https://github.com
 
 Check a zip you got from anywhere else with `certutil -hashfile <zip> SHA256` (Windows) before using it.
 
-Each package comes with `SHA256SUMS.txt` (the sum of every file) and `patch-listings` (the code patch as readable assembly, written by the same build that made the patch). The build is deterministic: the same sources and the same game files give the same bytes, so a package can be rebuilt from this repository and compared. `tools/package.py` makes the package and refuses anything that is not mod data.
+Each package comes with `SHA256SUMS.txt` (the sum of every file) and `patch-listings` (the code patch as readable assembly, written by the same build that made the patch). The build is deterministic: the same sources and the same game files give the same bytes, so a package can be rebuilt from this repository and compared. `tools/package.py` makes the package and refuses anything that is not mod data. Since v0.2.2, `gamefiles/release.py` turns that package into the zip: it writes the recipes, builds the tool, has the tool make every file again from the game, and compares each one with the package before it writes the zip (the same bytes; the clothing colours that are re-encoded as ASTC within one step of 255).
 
 ## Credits and AI use
 
 - **Human work.** The idea, the design of the page and the picker, every decision between versions, and all testing in the game are the author's. Each feature was played and approved in game before it went in.
 - **Code.** The build scripts, tools and code patches were written with heavy help from Claude (Anthropic), under the author's direction, and checked in game by the author. All of it is in this repository.
 - **Voices.** The characters' voices (Saria, young Zelda, Mido, young Ruto, young and adult Malon, Fado, the Great Fairy, Darunia's son) were made with a locally run voice conversion model, [Seed-VC](https://github.com/Plachtaa/seed-vc) by Plachtaa, with its published pretrained weights (not trained or fine-tuned by the author). The input is Link's own voice clips from the game; the reference voice for each character is that character's own voice clips from the game. No other voice material was used.
-- **Visuals.** No generated images. The portraits are captures of the game's own models, taken in game and cut out by a script. The hair and clothing colours are the game's own textures with their colours shifted by a script (`tools/texrecolor.py`).
+- **Visuals.** No generated images. The portraits are captures of the game's own models, taken in game and cut out by a script. The hair and clothing colours are the game's own textures with their colours shifted by a script (`tools/texrecolor.py`; since v0.2.2 on your PC, by the tool in the zip).
 - **This page.** The text was drafted with Claude and edited by the author.
 
 Mod and tools by snaildev99. *The Legend of Zelda: Ocarina of Time* and its characters belong to Nintendo.
